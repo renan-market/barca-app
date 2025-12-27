@@ -125,72 +125,31 @@ function rangeDatesInclusive(fromISO: string, toISO: string): string[] {
 }
 
 export async function GET(req: Request) {
+  // ✅ REGOLA: mai più ok:false
+  // se qualcosa va storto → ok:true closed:[]
   try {
     const url = new URL(req.url);
-    const from = url.searchParams.get("from"); // YYYY-MM-DD
-    const to = url.searchParams.get("to"); // YYYY-MM-DD
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
 
     if (!from || !to) {
-      return NextResponse.json({ ok: false, error: "Missing from/to" }, { status: 400 });
+      return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
     }
 
-    const ICAL_URL = process.env.GCAL_ICAL_PUBLIC_URL;
-    const localIcsUrl = new URL("/gcal.ics", new URL(req.url).origin).toString();
-const icalUrlToUse = ICAL_URL || localIcsUrl;
-    if (!ICAL_URL) {
-      return NextResponse.json({ ok: false, error: "Missing env GCAL_ICAL_PUBLIC_URL" }, { status: 500 });
-    }
+    // ✅ usa SOLO il file locale pubblico
+    const icsUrl = new URL("/gcal.ics", url.origin).toString();
 
-    // helper to perform fetch with desired headers and follow redirects
-    const doFetch = async (url: string, headers: Record<string, string>) => {
-      const r = await fetch(url, {
-        redirect: "follow",
-        headers,
-        cache: "no-store",
-      });
-      console.log(`[availability] fetch status=${r.status} finalUrl=${r.url}`);
-      return r;
-    };
-
-    // first attempt: basic headers
-    const primaryHeaders = {
-      "User-Agent": "Mozilla/5.0",
-      "Accept": "text/calendar,text/plain,*/*",
-    };
-
-    let res = await doFetch(icalUrlToUse, primaryHeaders);
-    // on non-OK, try a slightly more complete browser-like UA + Referer
+    const res = await fetch(icsUrl, { cache: "no-store" });
     if (!res.ok) {
-      const body1 = await res.text().catch(() => "");
-      console.log(`[availability] fetch body snippet (attempt1): ${body1.slice(0, 300)}`);
-
-      const altHeaders = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        "Accept": "text/calendar,application/ics,application/octet-stream,*/*;q=0.8",
-        "Referer": "https://calendar.google.com/",
-      };
-
-      const res2 = await doFetch(icalUrlToUse, altHeaders);
-      if (res2.ok) {
-        res = res2;
-      } else {
-        const body2 = await res2.text().catch(() => "");
-        console.log(`[availability] fetch body snippet (attempt2): ${body2.slice(0, 300)}`);
-        return NextResponse.json({ ok: false, error: `iCal fetch failed (${res2.status})` }, { status: 502 });
-      }
+      return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
     }
 
     const ics = await res.text();
-    // detect cases where Google returned HTML or a 404 page instead of .ics
-    const ctype = res.headers.get("content-type") || "";
-    const bodyStart = ics.slice(0, 300).toLowerCase();
-    if (!ctype.includes("text/calendar") && (bodyStart.includes("<!doctype html") || bodyStart.includes("<html") || bodyStart.includes("not found") || !ics.includes("BEGIN:VCALENDAR"))) {
-      console.log(`[availability] unexpected iCal response. content-type=${ctype} finalUrl=${res.url} bodySnippet=${ics.slice(0,300)}`);
-      return NextResponse.json({ ok: false, error: "iCal fetch returned HTML or unexpected content" }, { status: 502 });
+    if (!ics.includes("BEGIN:VCALENDAR")) {
+      return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
     }
 
     const closedSet = parseClosedDatesFromIcs(ics);
-
     const days = rangeDatesInclusive(from, to);
     const closedInRange = days.filter((d) => closedSet.has(d));
 
@@ -198,7 +157,7 @@ const icalUrlToUse = ICAL_URL || localIcsUrl;
       { ok: true, closed: closedInRange },
       { status: 200, headers: { "Cache-Control": "public, max-age=30" } }
     );
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
+  } catch {
+    return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
   }
 }
