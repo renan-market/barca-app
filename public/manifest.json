@@ -2,7 +2,7 @@
   "name": "BluHorizonte Booking",
   "short_name": "BluHorizonte",
   "description": "Prenotazioni catamarano - Blu Horizonte",
-  "start_url": "/",
+ "start_url": "/pwa",
   "scope": "/",
   "prefer_related_applications": false,
   "display": "standalone",
