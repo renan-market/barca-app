@@ -135,6 +135,8 @@ export async function GET(req: Request) {
     }
 
     const ICAL_URL = process.env.GCAL_ICAL_PUBLIC_URL;
+    const localIcsUrl = new URL("/gcal.ics", new URL(req.url).origin).toString();
+const icalUrlToUse = ICAL_URL || localIcsUrl;
     if (!ICAL_URL) {
       return NextResponse.json({ ok: false, error: "Missing env GCAL_ICAL_PUBLIC_URL" }, { status: 500 });
     }
@@ -156,8 +158,7 @@ export async function GET(req: Request) {
       "Accept": "text/calendar,text/plain,*/*",
     };
 
-    let res = await doFetch(ICAL_URL, primaryHeaders);
-
+    let res = await doFetch(icalUrlToUse, primaryHeaders);
     // on non-OK, try a slightly more complete browser-like UA + Referer
     if (!res.ok) {
       const body1 = await res.text().catch(() => "");
@@ -169,7 +170,7 @@ export async function GET(req: Request) {
         "Referer": "https://calendar.google.com/",
       };
 
-      const res2 = await doFetch(ICAL_URL, altHeaders);
+      const res2 = await doFetch(icalUrlToUse, altHeaders);
       if (res2.ok) {
         res = res2;
       } else {
