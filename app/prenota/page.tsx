@@ -549,7 +549,8 @@ export default function Page() {
         return;
       }
 
-      const closed = Array.isArray(data.closed) ? (closed as string[]) : [];
+      const closed = Array.isArray(data.closed) ? (data.closed as string[]) : [];
+
       setClosedDates(closed);
       setAvailabilityError(null);
     } catch (e: any) {
