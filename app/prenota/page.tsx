@@ -50,7 +50,7 @@ const EXPERIENCES: Experience[] = [
   { id: "custom", title: "Personalizzata", subtitle: "Extra + richiesta su misura", durationLabel: "variabile" },
 ];
 
-// ✅ PREZZI STAGIONALI (restano come sono: NON tocchiamo Media/Alta adesso)
+// ✅ PREZZI STAGIONALI (base)
 const PRICES: Record<SeasonKey, { day: number; halfday: number; sunset: number; night: number }> = {
   Bassa: { day: 650, halfday: 450, sunset: 420, night: 845 },
   Media: { day: 850, halfday: 600, sunset: 520, night: 1105 },
@@ -62,6 +62,11 @@ const APRIL_PRICES = { day: 380, halfday: 280, sunset: 260, night: 500 } as cons
 
 // ✅ BASSA (Maggio + Ottobre) — prezzi ricalcolati dal Day 460
 const MAY_OCT_PRICES = { day: 460, halfday: 320, sunset: 290, night: 575 } as const;
+
+// ✅ GIUGNO / LUGLIO / AGOSTO (mese-specifici)
+const JUNE_PRICES = { day: 600, halfday: 420, sunset: 370, night: 780 } as const;
+const JULY_PRICES = { day: 700, halfday: 500, sunset: 410, night: 910 } as const;
+const AUGUST_PRICES = { day: 800, halfday: 570, sunset: 470, night: 1040 } as const;
 
 // ✅ EXTRA (transfer tolto) — ✅ PULIZIA FINALE RIMOSSA
 const EXTRA = {
@@ -100,6 +105,20 @@ function isMayOrOctober(d: Date | null | undefined) {
   return m === 4 || m === 9;
 }
 
+// ✅ GIUGNO / LUGLIO / AGOSTO
+function isJune(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getMonth() === 5;
+}
+function isJuly(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getMonth() === 6;
+}
+function isAugust(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getMonth() === 7;
+}
+
 function formatEUR(value: number) {
   return new Intl.NumberFormat("it-IT", {
     style: "currency",
@@ -134,11 +153,19 @@ function isBaseExperience(id: ExperienceId) {
   return id === "day" || id === "halfday" || id === "sunset" || id === "overnight";
 }
 
-// ✅ usa prezzi APRILE solo quando auto e data base è in aprile
-// ✅ usa prezzi MAGGIO/OTTOBRE quando stagione = Bassa e data base è maggio o ottobre
+// ✅ prezzi mese-specifici: Aprile → Mag/Ott → Giugno → Luglio → Agosto → default stagione
 function getEffectivePrices(args: { season: SeasonKey; auto: boolean; baseDate: Date | null }) {
+  // Aprile solo in AUTO (extra-bassa)
   if (args.auto && isApril(args.baseDate)) return APRIL_PRICES;
+
+  // Maggio/Ottobre: Bassa, in base alla data (AUTO + MANUALE)
   if (args.season === "Bassa" && isMayOrOctober(args.baseDate)) return MAY_OCT_PRICES;
+
+  // Giugno/Luglio/Agosto: mese-specifici (AUTO + MANUALE), in base alla data
+  if (isJune(args.baseDate)) return JUNE_PRICES;
+  if (isJuly(args.baseDate)) return JULY_PRICES;
+  if (isAugust(args.baseDate)) return AUGUST_PRICES;
+
   return PRICES[args.season];
 }
 
@@ -228,7 +255,6 @@ export default function Page() {
         notesOpt: "Note (opzionale)",
         namePh: "Es. Renan",
         notesPh: "Orario preferito, porto, richieste speciali…",
-        // ✅ MODIFICA 1: testo incluso con parentesi
         included:
           "Incluso: skipper, maschere e boccaglio, paddle SUP, dinghy. (per pernottamento: lenzuola e asciugamani)",
         notIncluded: "Non incluso: carburante e cambusa.",
@@ -506,7 +532,12 @@ export default function Page() {
 
   const extrasTotal = useMemo(() => {
     const catering = extraCatering ? EXTRA.cateringPerPerson * people : 0;
-    return (extraSeabob ? EXTRA.seabob : 0) + (extraDrinks ? EXTRA.drinksPremium : 0) + catering + (extraGopro ? EXTRA.gopro : 0);
+    return (
+      (extraSeabob ? EXTRA.seabob : 0) +
+      (extraDrinks ? EXTRA.drinksPremium : 0) +
+      catering +
+      (extraGopro ? EXTRA.gopro : 0)
+    );
   }, [extraSeabob, extraDrinks, extraCatering, extraGopro, people]);
 
   const totalEstimated = useMemo(() => (basePrice ?? 0) + extrasTotal, [basePrice, extrasTotal]);
@@ -608,7 +639,9 @@ export default function Page() {
       lines.push(`*Dettaglio:* ${priceLabel}`);
     } else {
       lines.push(`*Data:* ${date}`);
-      lines.push(`*Prezzo base stimato:* ${basePrice !== null ? formatEUR(basePrice) : "Da definire"} (${seasonLabel})`);
+      lines.push(
+        `*Prezzo base stimato:* ${basePrice !== null ? formatEUR(basePrice) : "Da definire"} (${seasonLabel})`
+      );
     }
 
     lines.push(`*Persone:* ${people}`);
@@ -621,8 +654,9 @@ export default function Page() {
     }
 
     lines.push("");
-    // ✅ MODIFICA 2: incluso con parentesi anche in WhatsApp
-    lines.push("*Incluso:* skipper, maschere e boccaglio, paddle SUP, dinghy. (per pernottamento: lenzuola e asciugamani)");
+    lines.push(
+      "*Incluso:* skipper, maschere e boccaglio, paddle SUP, dinghy. (per pernottamento: lenzuola e asciugamani)"
+    );
     lines.push("*Non incluso:* carburante e cambusa.");
 
     if (name.trim()) lines.push(`*Nome:* ${name.trim()}`);
@@ -855,7 +889,12 @@ export default function Page() {
                   <div className="mt-4 space-y-3 text-sm">
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraSeabob} onChange={(e) => setExtraSeabob(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraSeabob}
+                          onChange={(e) => setExtraSeabob(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Seabob</span>
                       </div>
                       <span className="font-semibold text-gray-900">{formatEUR(EXTRA.seabob)}</span>
@@ -863,7 +902,12 @@ export default function Page() {
 
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraDrinks} onChange={(e) => setExtraDrinks(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraDrinks}
+                          onChange={(e) => setExtraDrinks(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Bevande Premium</span>
                       </div>
                       <span className="font-semibold text-gray-900">{formatEUR(EXTRA.drinksPremium)}</span>
@@ -871,7 +915,12 @@ export default function Page() {
 
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraCatering} onChange={(e) => setExtraCatering(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraCatering}
+                          onChange={(e) => setExtraCatering(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Catering</span>
                       </div>
                       <span className="font-semibold text-gray-900">
@@ -881,14 +930,20 @@ export default function Page() {
 
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraGopro} onChange={(e) => setExtraGopro(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraGopro}
+                          onChange={(e) => setExtraGopro(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Foto/Video (GoPro)</span>
                       </div>
                       <span className="font-semibold text-gray-900">{formatEUR(EXTRA.gopro)}</span>
                     </label>
 
                     <p className="text-xs text-slate-800">
-                      Bevande Premium: pacchetto aperitivo per il gruppo (fino a 12 persone). Catering: {formatEUR(EXTRA.cateringPerPerson)} a persona.
+                      Bevande Premium: pacchetto aperitivo per il gruppo (fino a 12 persone). Catering:{" "}
+                      {formatEUR(EXTRA.cateringPerPerson)} a persona.
                     </p>
                   </div>
                 </section>
@@ -897,29 +952,50 @@ export default function Page() {
               {/* DATA + PERSONE */}
               <section className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-sm font-semibold text-gray-900">{usesOvernightDates ? t("dates") : t("date")}</label>
+                  <label className="text-sm font-semibold text-gray-900">
+                    {usesOvernightDates ? t("dates") : t("date")}
+                  </label>
 
                   {usesOvernightDates ? (
                     <div className="mt-2 space-y-2">
                       <div>
                         <div className="text-xs text-slate-800 mb-1">{t("from")}</div>
-                        <input type="date" value={dateFrom} onChange={(e) => setFromSafe(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]" />
+                        <input
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => setFromSafe(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
+                        />
                       </div>
                       <div>
                         <div className="text-xs text-slate-800 mb-1">{t("to")}</div>
-                        <input type="date" value={dateTo} onChange={(e) => setToSafe(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]" />
+                        <input
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => setToSafe(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
+                        />
                       </div>
                       <div className="text-xs text-slate-900">
                         {t("nights")}:{" "}
-                        <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">{nights || "—"}</span>
+                        <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">
+                          {nights || "—"}
+                        </span>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]" />
+                      <input
+                        type="date"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                        className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
+                      />
                       <div className="mt-2 text-xs text-slate-900">
                         {t("seasonAuto")}{" "}
-                        <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">{seasonMode === "auto" ? seasonLabel : autoSeason}</span>
+                        <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">
+                          {seasonMode === "auto" ? seasonLabel : autoSeason}
+                        </span>
                       </div>
                     </>
                   )}
@@ -944,7 +1020,9 @@ export default function Page() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-xs text-slate-800">{t("seasonPrices")}</div>
-                    <div className="font-bold text-gray-900">{seasonMode === "auto" ? `Automatica (${seasonLabel})` : `Manuale (${manualSeason})`}</div>
+                    <div className="font-bold text-gray-900">
+                      {seasonMode === "auto" ? `Automatica (${seasonLabel})` : `Manuale (${manualSeason})`}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -953,7 +1031,9 @@ export default function Page() {
                       onClick={() => setSeasonMode("auto")}
                       className={[
                         "rounded-full px-3 py-1 text-xs font-semibold border transition",
-                        seasonMode === "auto" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200",
+                        seasonMode === "auto"
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-800 border-gray-200",
                       ].join(" ")}
                     >
                       {t("auto")}
@@ -963,7 +1043,9 @@ export default function Page() {
                       onClick={() => setSeasonMode("manual")}
                       className={[
                         "rounded-full px-3 py-1 text-xs font-semibold border transition",
-                        seasonMode === "manual" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200",
+                        seasonMode === "manual"
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-800 border-gray-200",
                       ].join(" ")}
                     >
                       {t("manual")}
@@ -983,7 +1065,9 @@ export default function Page() {
                           className={[
                             "rounded-xl px-3 py-2 text-sm font-semibold border transition",
                             "shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
-                            active ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200" : "border-gray-200 bg-white hover:border-gray-300",
+                            active
+                              ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200"
+                              : "border-gray-200 bg-white hover:border-gray-300",
                           ].join(" ")}
                         >
                           {s}
@@ -1003,9 +1087,14 @@ export default function Page() {
                     <div className="text-xs text-slate-800">{t("estimated")}</div>
                     {baseExpForCalc === "overnight" ? (
                       <>
-                        <div className="text-lg font-extrabold">{formatEUR(getEffectivePrices({ season, auto: seasonMode === "auto", baseDate: seasonBaseDate }).night)} / notte</div>
+                        <div className="text-lg font-extrabold">
+                          {formatEUR(getEffectivePrices({ season, auto: seasonMode === "auto", baseDate: seasonBaseDate }).night)}{" "}
+                          / notte
+                        </div>
                         <div className="text-xs text-slate-800 mt-1">{priceLabel}</div>
-                        {extrasTotal > 0 && <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>}
+                        {extrasTotal > 0 && (
+                          <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>
+                        )}
                         <div className="text-xs text-slate-900 mt-1">
                           Totale stimato: <b>{formatEUR(totalEstimated)}</b>
                         </div>
@@ -1013,7 +1102,9 @@ export default function Page() {
                     ) : (
                       <>
                         <div className="text-lg font-extrabold">{basePrice !== null ? formatEUR(basePrice) : "Da definire"}</div>
-                        {extrasTotal > 0 && <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>}
+                        {extrasTotal > 0 && (
+                          <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>
+                        )}
                         <div className="text-xs text-slate-900 mt-1">
                           Totale stimato: <b>{formatEUR(totalEstimated)}</b>
                         </div>
@@ -1034,12 +1125,23 @@ export default function Page() {
               <section className="space-y-3">
                 <div>
                   <label className="text-sm font-semibold text-gray-900">{t("nameOpt")}</label>
-                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("namePh")} className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]" />
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t("namePh")}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
+                  />
                 </div>
 
                 <div>
                   <label className="text-sm font-semibold text-gray-900">{t("notesOpt")}</label>
-                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t("notesPh")} rows={4} className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]" />
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder={t("notesPh")}
+                    rows={4}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
+                  />
                 </div>
 
                 <div className="text-xs text-slate-900">
@@ -1061,7 +1163,11 @@ export default function Page() {
                       {t("waSend")}
                     </a>
                   ) : (
-                    <button type="button" disabled className="col-span-2 block w-full rounded-2xl text-white/95 text-center font-extrabold py-3 bg-gray-500 cursor-not-allowed">
+                    <button
+                      type="button"
+                      disabled
+                      className="col-span-2 block w-full rounded-2xl text-white/95 text-center font-extrabold py-3 bg-gray-500 cursor-not-allowed"
+                    >
                       {checkingAvailability ? t("waChecking") : hasClosedInSelection ? t("waClosed") : t("waError")}
                     </button>
                   )}
