@@ -60,6 +60,9 @@ const PRICES: Record<SeasonKey, { day: number; halfday: number; sunset: number; 
 // ✅ APRILE = EXTRA-BASSA (AUTO) — prezzi separati
 const APRIL_PRICES = { day: 380, halfday: 280, sunset: 260, night: 500 } as const;
 
+// ✅ BASSA (Maggio + Ottobre) — prezzi ricalcolati dal Day 460
+const MAY_OCT_PRICES = { day: 460, halfday: 320, sunset: 290, night: 575 } as const;
+
 // ✅ EXTRA (transfer tolto) — ✅ PULIZIA FINALE RIMOSSA
 const EXTRA = {
   seabob: 650,
@@ -88,6 +91,13 @@ function getSeasonFromDate(d: Date | null | undefined): SeasonKey {
 function isApril(d: Date | null | undefined) {
   if (!d || Number.isNaN(d.getTime())) return false;
   return d.getMonth() === 3;
+}
+
+// ✅ MAGGIO o OTTOBRE (mese 4 = maggio, mese 9 = ottobre)
+function isMayOrOctober(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  const m = d.getMonth();
+  return m === 4 || m === 9;
 }
 
 function formatEUR(value: number) {
@@ -125,8 +135,10 @@ function isBaseExperience(id: ExperienceId) {
 }
 
 // ✅ usa prezzi APRILE solo quando auto e data base è in aprile
+// ✅ usa prezzi MAGGIO/OTTOBRE quando stagione = Bassa e data base è maggio o ottobre
 function getEffectivePrices(args: { season: SeasonKey; auto: boolean; baseDate: Date | null }) {
   if (args.auto && isApril(args.baseDate)) return APRIL_PRICES;
+  if (args.season === "Bassa" && isMayOrOctober(args.baseDate)) return MAY_OCT_PRICES;
   return PRICES[args.season];
 }
 
@@ -273,7 +285,8 @@ export default function Page() {
       },
       es: {
         title: "Solicitud de reserva",
-        subtitle: "Esto es una solicitud, no una reserva automática. Verificamos disponibilidad y respondemos por WhatsApp.",
+        subtitle:
+          "Esto es una solicitud, no una reserva automática. Verificamos disponibilidad y respondemos por WhatsApp.",
         boat: "Barco",
         chooseExp: "Elige la experiencia",
         availability: "Disponibilidad",
@@ -281,7 +294,8 @@ export default function Page() {
         notAvailable: "No disponible",
         error: "Error",
         available: "Disponible",
-        datesInfo: "Las fechas se verifican en el calendario. Si una fecha está ocupada, se bloquea la solicitud.",
+        datesInfo:
+          "Las fechas se verifican en el calendario. Si una fecha está ocupada, se bloquea la solicitud.",
         extrasTitle: "Extras (opcional)",
         extrasSubtitle: "Selecciona y mira el total",
         extrasTotal: "Total extras",
@@ -316,7 +330,8 @@ export default function Page() {
       },
       fr: {
         title: "Demande de réservation",
-        subtitle: "Ceci est une demande, pas une réservation automatique. Nous vérifions la disponibilité et répondons sur WhatsApp.",
+        subtitle:
+          "Ceci est une demande, pas une réservation automatique. Nous vérifions la disponibilité et répondons sur WhatsApp.",
         boat: "Bateau",
         chooseExp: "Choisir l’expérience",
         availability: "Disponibilité",
@@ -324,7 +339,8 @@ export default function Page() {
         notAvailable: "Indisponible",
         error: "Erreur",
         available: "Disponible",
-        datesInfo: "Les dates sont vérifiées via le calendrier. Si une date est prise, la demande est bloquée.",
+        datesInfo:
+          "Les dates sont vérifiées via le calendrier. Si une date est prise, la demande est bloquée.",
         extrasTitle: "Extras (optionnels)",
         extrasSubtitle: "Sélectionne et vois le total",
         extrasTotal: "Total extras",
@@ -533,7 +549,7 @@ export default function Page() {
         return;
       }
 
-      const closed = Array.isArray(data.closed) ? (data.closed as string[]) : [];
+      const closed = Array.isArray(data.closed) ? (closed as string[]) : [];
       setClosedDates(closed);
       setAvailabilityError(null);
     } catch (e: any) {
