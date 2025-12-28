@@ -620,10 +620,53 @@ export default function Page() {
               <h1 className="text-2xl font-extrabold text-white drop-shadow-sm">{t("title")}</h1>
               <p className="text-white/90 mt-1">{t("subtitle")}</p>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-white/75">{t("boat")}</div>
-              <div className="font-semibold text-white">{BOAT.name}</div>
-              <div className="text-sm text-white/90">{BOAT.location}</div>
+
+            {/* ✅ COLONNA DESTRA: Lingua (in alto a destra) + Barca */}
+            <div className="relative flex flex-col items-end gap-2 text-right">
+              {/* ✅ Lingua (spostata qui) */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLangOpen((v) => !v);
+                }}
+                className="rounded-2xl border border-white/25 bg-white/15 backdrop-blur-md shadow-[0_8px_18px_rgba(0,0,0,0.10)] px-3 py-2 text-left"
+              >
+                <div className="text-[11px] text-white/85 font-semibold">🌍 {t("language")}</div>
+                <div className="text-sm font-extrabold text-white">{lang.toUpperCase()}</div>
+              </button>
+
+              {/* ✅ Dropdown verso il basso (non copre il resto) */}
+              {langOpen && (
+                <div
+                  className="absolute right-0 top-full mt-2 z-30 w-[140px] rounded-2xl border border-white/25 bg-white shadow-[0_14px_30px_rgba(0,0,0,0.20)] overflow-hidden"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  {LANG_OPTIONS.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => {
+                        setLang(o.id);
+                        setLangOpen(false);
+                      }}
+                      className={[
+                        "w-full text-left px-3 py-2 text-sm font-semibold transition",
+                        o.id === lang ? "bg-sky-50 text-sky-900" : "bg-white text-gray-900 hover:bg-gray-50",
+                      ].join(" ")}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Barca */}
+              <div>
+                <div className="text-xs text-white/75">{t("boat")}</div>
+                <div className="font-semibold text-white">{BOAT.name}</div>
+                <div className="text-sm text-white/90">{BOAT.location}</div>
+              </div>
             </div>
           </div>
 
@@ -1037,7 +1080,7 @@ export default function Page() {
                 </div>
               </section>
 
-              {/* CTA ROW: WhatsApp (più piccolo) + Lingua + Pagamento */}
+              {/* CTA ROW: WhatsApp (più piccolo) + Pagamento */}
               <section className="pt-1">
                 <div className="grid grid-cols-3 gap-2 items-stretch">
                   {/* WhatsApp */}
@@ -1060,47 +1103,8 @@ export default function Page() {
                     </button>
                   )}
 
-                  {/* Lingua + Pagamento */}
+                  {/* Solo Pagamento */}
                   <div className="relative flex flex-col gap-2">
-                    {/* Lingua */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setLangOpen((v) => !v);
-                      }}
-                      className="w-full rounded-2xl border border-gray-200 bg-white shadow-[0_8px_18px_rgba(0,0,0,0.08)] px-3 py-2 text-left"
-                    >
-                      <div className="text-[11px] text-slate-800 font-semibold">🌍 {t("language")}</div>
-                      <div className="text-sm font-extrabold text-gray-900">{lang.toUpperCase()}</div>
-                    </button>
-
-                    {/* ✅ Dropdown verso l’ALTO (non viene coperto e non copre) */}
-                    {langOpen && (
-                      <div
-                        className="absolute right-0 bottom-full mb-2 z-30 w-full rounded-2xl border border-gray-200 bg-white shadow-[0_14px_30px_rgba(0,0,0,0.14)] overflow-hidden"
-                        onPointerDown={(e) => e.stopPropagation()}
-                      >
-                        {LANG_OPTIONS.map((o) => (
-                          <button
-                            key={o.id}
-                            type="button"
-                            onClick={() => {
-                              setLang(o.id);
-                              setLangOpen(false);
-                            }}
-                            className={[
-                              "w-full text-left px-3 py-2 text-sm font-semibold transition",
-                              o.id === lang ? "bg-sky-50 text-sky-900" : "bg-white text-gray-900 hover:bg-gray-50",
-                            ].join(" ")}
-                          >
-                            {o.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Pagamento */}
                     <button
                       type="button"
                       onClick={openStripe}
