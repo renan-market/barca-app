@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type ExperienceId = "halfday" | "day" | "sunset" | "overnight" | "custom";
 type SeasonKey = "Bassa" | "Media" | "Alta";
@@ -47,19 +47,27 @@ const PRICES: Record<SeasonKey, { day: number; halfday: number; sunset: number; 
   Alta: { day: 1100, halfday: 780, sunset: 650, night: 1430 },
 };
 
-// ✅ EXTRA (transfer tolto)
+// ✅ EXTRA (transfer tolto) — ✅ PULIZIA FINALE RIMOSSA
 const EXTRA = {
   seabob: 650,
   drinksPremium: 150,
   cateringPerPerson: 25,
   gopro: 80,
-  cleaning: 80,
 } as const;
 
-function getSeasonFromDate(d: Date): SeasonKey {
-  const m = d.getMonth() + 1;
-  if (m === 7 || m === 8) return "Alta";
-  if (m === 5 || m === 6 || m === 9) return "Media";
+/**
+ * ✅ FIX STAGIONI (Regola desiderata)
+ * - Alta: Luglio + Agosto
+ * - Media: Giugno + Settembre
+ * - Bassa: Aprile + Maggio + Ottobre + resto (Nov–Mar)
+ *
+ * Inoltre: safe fallback per evitare errori runtime (500)
+ */
+function getSeasonFromDate(d: Date | null | undefined): SeasonKey {
+  if (!d || Number.isNaN(d.getTime())) return "Bassa"; // fallback sicuro
+  const month = d.getMonth(); // 0-11
+  if (month === 6 || month === 7) return "Alta"; // Luglio(6), Agosto(7)
+  if (month === 5 || month === 8) return "Media"; // Giugno(5), Settembre(8)
   return "Bassa";
 }
 
@@ -133,16 +141,20 @@ export default function Page() {
 
   const [halfdaySlot, setHalfdaySlot] = useState<HalfDaySlot>("Mattina");
 
-  // ✅ Extra (selezionabili SOLO in Personalizzata, ma contano nel totale del servizio)
+  // ✅ Extra
   const [extraSeabob, setExtraSeabob] = useState(false);
   const [extraDrinks, setExtraDrinks] = useState(false);
   const [extraCatering, setExtraCatering] = useState(false);
   const [extraGopro, setExtraGopro] = useState(false);
-  const [extraCleaning, setExtraCleaning] = useState(false);
 
   // ✅ Stagione
   const [seasonMode, setSeasonMode] = useState<"auto" | "manual">("auto");
   const [manualSeason, setManualSeason] = useState<SeasonKey>("Media");
+
+  // ✅ Disponibilità (API /api/availability)
+  const [closedDates, setClosedDates] = useState<string[]>([]);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState<boolean>(false);
 
   const experience = useMemo(() => EXPERIENCES.find((e) => e.id === selected)!, [selected]);
 
@@ -151,29 +163,20 @@ export default function Page() {
     if (isBaseExperience(id)) setLastBaseExperience(id);
   }
 
-  // ✅ “Base reale” per i calcoli:
-  // se sei su Personalizzata, la base è l’ultima esperienza vera (anche Overnight)
   const baseExpForCalc: ExperienceId = selected === "custom" ? lastBaseExperience : selected;
-
-  // ✅ Se la base è Overnight, DEVONO restare visibili le date Da/A (anche dentro Personalizzata)
   const usesOvernightDates = baseExpForCalc === "overnight";
 
-  // ✅ Stagione auto basata sulla data corretta:
-  // - Overnight → dateFrom
-  // - altrimenti → date
   const seasonBaseDate = useMemo(() => {
     const base = usesOvernightDates ? dateFrom : date;
     return parseISODateOnly(base);
   }, [usesOvernightDates, dateFrom, date]);
 
   const autoSeason = useMemo<SeasonKey>(() => {
-    if (!seasonBaseDate) return getSeasonFromDate(new Date());
-    return getSeasonFromDate(seasonBaseDate);
+    return getSeasonFromDate(seasonBaseDate ?? new Date());
   }, [seasonBaseDate]);
 
   const season: SeasonKey = seasonMode === "auto" ? autoSeason : manualSeason;
 
-  // ✅ Notti calcolate quando la base è Overnight (anche se sei in Personalizzata)
   const nights = useMemo(() => {
     if (!usesOvernightDates) return 0;
     if (!dateFrom || !dateTo) return 0;
@@ -185,7 +188,6 @@ export default function Page() {
     return calcBasePrice({ season, exp: baseExpForCalc, nights });
   }, [season, baseExpForCalc, nights]);
 
-  // ✅ Label pernottamento: mostra sempre €/notte anche se notti=0
   const priceLabel = useMemo(() => {
     if (baseExpForCalc === "overnight") {
       const perNight = PRICES[season].night;
@@ -195,27 +197,22 @@ export default function Page() {
     return basePrice !== null ? formatEUR(basePrice) : "Da definire";
   }, [season, nights, baseExpForCalc, basePrice]);
 
-  // ✅ Extra totale: SEMPRE calcolato (ma UI per selezionarli resta solo in Personalizzata)
   const extrasTotal = useMemo(() => {
     const catering = extraCatering ? EXTRA.cateringPerPerson * people : 0;
     return (
       (extraSeabob ? EXTRA.seabob : 0) +
       (extraDrinks ? EXTRA.drinksPremium : 0) +
       catering +
-      (extraGopro ? EXTRA.gopro : 0) +
-      (extraCleaning ? EXTRA.cleaning : 0)
+      (extraGopro ? EXTRA.gopro : 0)
     );
-  }, [extraSeabob, extraDrinks, extraCatering, extraGopro, extraCleaning, people]);
+  }, [extraSeabob, extraDrinks, extraCatering, extraGopro, people]);
 
-  // ✅ Totale = base servizio + extra (sempre)
   const totalEstimated = useMemo(() => {
     return (basePrice ?? 0) + extrasTotal;
   }, [basePrice, extrasTotal]);
 
-  // ✅ Auto-fix date: evita A prima di Da (senza cambiare UI)
   function setFromSafe(v: string) {
     setDateFrom(v);
-    // se A <= Da, metti A = Da + 1
     if (dateTo && v && dateTo <= v) {
       const d = parseISODateOnly(v);
       if (d) {
@@ -225,7 +222,6 @@ export default function Page() {
     }
   }
   function setToSafe(v: string) {
-    // se A <= Da, metti A = Da + 1
     if (dateFrom && v && v <= dateFrom) {
       const d = parseISODateOnly(dateFrom);
       if (d) {
@@ -236,6 +232,61 @@ export default function Page() {
     }
     setDateTo(v);
   }
+
+  // ✅ chiamata API disponibilità
+  async function checkAvailability(fromISO: string, toISO: string) {
+    if (!fromISO || !toISO) return;
+    setCheckingAvailability(true);
+    setAvailabilityError(null);
+    try {
+      const r = await fetch(`/api/availability?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`, {
+        cache: "no-store",
+      });
+      const data = (await r.json().catch(() => null)) as any;
+
+      if (!data || data.ok !== true) {
+        setClosedDates([]);
+        setAvailabilityError(data?.error ? String(data.error) : "Errore verifica disponibilità");
+        return;
+      }
+
+      const closed = Array.isArray(data.closed) ? (data.closed as string[]) : [];
+      setClosedDates(closed);
+      setAvailabilityError(null);
+    } catch (e: any) {
+      setClosedDates([]);
+      setAvailabilityError(e?.message ? String(e.message) : "Errore verifica disponibilità");
+    } finally {
+      setCheckingAvailability(false);
+    }
+  }
+
+  // ✅ trigger automatico quando cambiano date / esperienza
+  useEffect(() => {
+    // per overnight l’API deve controllare il range "Da/A"
+    const fromISO = usesOvernightDates ? dateFrom : date;
+    const toISO = usesOvernightDates ? dateTo : date;
+
+    // se overnight ma date non valide → non chiamare
+    if (usesOvernightDates && (!dateFrom || !dateTo || dateTo <= dateFrom)) {
+      setClosedDates([]);
+      setAvailabilityError(null);
+      return;
+    }
+
+    // debounce leggero per evitare chiamate doppie mentre scrive/cambia
+    const t = setTimeout(() => {
+      checkAvailability(fromISO, toISO);
+    }, 250);
+
+    return () => clearTimeout(t);
+  }, [usesOvernightDates, date, dateFrom, dateTo]);
+
+  const hasClosedInSelection = closedDates.length > 0;
+
+  // ✅ OPZIONE A: bottone bloccato se controllo / errore / date chiuse
+  const waDisabled = checkingAvailability || !!availabilityError || hasClosedInSelection;
+  const canSendWhatsapp = !waDisabled;
 
   const whatsappText = useMemo(() => {
     const lines: string[] = [];
@@ -253,7 +304,6 @@ export default function Page() {
       lines.push(`*Esperienza:* ${experience.title} (${experience.durationLabel})`);
     }
 
-    // Date (coerenti con base)
     if (usesOvernightDates) {
       lines.push(`*Da:* ${dateFrom}`);
       lines.push(`*A:* ${dateTo}`);
@@ -269,6 +319,11 @@ export default function Page() {
 
     if (extrasTotal > 0) lines.push(`*Extra:* ${formatEUR(extrasTotal)}`);
     lines.push(`*Totale stimato:* ${formatEUR(totalEstimated)}`);
+
+    if (hasClosedInSelection) {
+      lines.push("");
+      lines.push(`⚠️ Nota: nel calendario risultano occupate queste date: ${closedDates.join(", ")}`);
+    }
 
     lines.push("");
     lines.push("*Incluso:* skipper, maschere e boccaglio, paddle SUP, dinghy.");
@@ -299,6 +354,8 @@ export default function Page() {
     extrasTotal,
     totalEstimated,
     priceLabel,
+    hasClosedInSelection,
+    closedDates,
   ]);
 
   const whatsappLink = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappText}`;
@@ -407,6 +464,30 @@ export default function Page() {
                 </div>
               </section>
 
+              {/* BLOCCO DISPONIBILITÀ (riassunto) */}
+              <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs text-gray-500">Disponibilità</div>
+                    <div className="font-bold text-gray-900">
+                      {checkingAvailability ? "Controllo in corso..." : hasClosedInSelection ? "Non disponibile" : availabilityError ? "Errore" : "Disponibile"}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {availabilityError ? (
+                      <div className="text-xs text-red-600 font-semibold">Errore</div>
+                    ) : hasClosedInSelection ? (
+                      <div className="text-xs text-red-600 font-semibold">Non disponibile</div>
+                    ) : (
+                      <div className="text-xs text-emerald-700 font-semibold">OK</div>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Le date vengono controllate dal calendario. Se una data è occupata, la richiesta viene bloccata.
+                </p>
+              </section>
+
               {/* EXTRA (UI SOLO in Personalizzata) */}
               {selected === "custom" && (
                 <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
@@ -424,7 +505,12 @@ export default function Page() {
                   <div className="mt-4 space-y-3 text-sm">
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraSeabob} onChange={(e) => setExtraSeabob(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraSeabob}
+                          onChange={(e) => setExtraSeabob(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Seabob</span>
                       </div>
                       <span className="font-semibold text-gray-900">{formatEUR(EXTRA.seabob)}</span>
@@ -432,7 +518,12 @@ export default function Page() {
 
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraDrinks} onChange={(e) => setExtraDrinks(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraDrinks}
+                          onChange={(e) => setExtraDrinks(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Bevande Premium</span>
                       </div>
                       <span className="font-semibold text-gray-900">{formatEUR(EXTRA.drinksPremium)}</span>
@@ -440,7 +531,12 @@ export default function Page() {
 
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraCatering} onChange={(e) => setExtraCatering(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraCatering}
+                          onChange={(e) => setExtraCatering(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Catering</span>
                       </div>
                       <span className="font-semibold text-gray-900">
@@ -450,18 +546,15 @@ export default function Page() {
 
                     <label className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraGopro} onChange={(e) => setExtraGopro(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <input
+                          type="checkbox"
+                          checked={extraGopro}
+                          onChange={(e) => setExtraGopro(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
                         <span className="text-gray-900">Foto/Video (GoPro)</span>
                       </div>
                       <span className="font-semibold text-gray-900">{formatEUR(EXTRA.gopro)}</span>
-                    </label>
-
-                    <label className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={extraCleaning} onChange={(e) => setExtraCleaning(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
-                        <span className="text-gray-900">Pulizia finale</span>
-                      </div>
-                      <span className="font-semibold text-gray-900">{formatEUR(EXTRA.cleaning)}</span>
                     </label>
 
                     <p className="text-xs text-gray-500">
@@ -518,6 +611,30 @@ export default function Page() {
                         </span>
                       </div>
                     </>
+                  )}
+
+                  {/* ✅ OPZIONE A — BOX ROSSO SOTTO LE DATE */}
+                  {(availabilityError || hasClosedInSelection) && (
+                    <div
+                      className="mt-3 rounded-2xl border p-3"
+                      style={{
+                        borderColor: "#fecaca",
+                        background: "#fef2f2",
+                        color: "#991b1b",
+                        fontSize: 13,
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {availabilityError ? (
+                        <div>
+                          <b>Errore disponibilità.</b> Riprova tra poco.
+                        </div>
+                      ) : (
+                        <div>
+                          <b>Date non disponibili:</b> {closedDates.join(", ")}. Cambia data.
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {selected === "halfday" && (
@@ -605,7 +722,9 @@ export default function Page() {
                           className={[
                             "rounded-xl px-3 py-2 text-sm font-semibold border transition",
                             "shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
-                            active ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200" : "border-gray-200 bg-white hover:border-gray-300",
+                            active
+                              ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200"
+                              : "border-gray-200 bg-white hover:border-gray-300",
                           ].join(" ")}
                         >
                           {s}
@@ -686,18 +805,26 @@ export default function Page() {
               </section>
 
               {/* CTA WhatsApp */}
-              <a
-                href={whatsappLink}
-                target="_blank"
-                rel="noreferrer"
-                className="block w-full rounded-2xl text-white text-center font-extrabold py-3 shadow-[0_14px_30px_rgba(16,185,129,0.35)] active:scale-[0.99] transition bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700"
-              >
-                Invia richiesta su WhatsApp
-              </a>
+              {canSendWhatsapp ? (
+                <a
+                  href={whatsappLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block w-full rounded-2xl text-white text-center font-extrabold py-3 shadow-[0_14px_30px_rgba(16,185,129,0.35)] active:scale-[0.99] transition bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700"
+                >
+                  Invia richiesta su WhatsApp
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="block w-full rounded-2xl text-white/90 text-center font-extrabold py-3 bg-gray-400 cursor-not-allowed"
+                >
+                  {checkingAvailability ? "Controllo disponibilità..." : hasClosedInSelection ? "Date non disponibili" : "Errore disponibilità"}
+                </button>
+              )}
 
-              <p className="text-xs text-gray-500 text-center">
-                Ti rispondiamo su WhatsApp appena verifichiamo la disponibilità.
-              </p>
+              <p className="text-xs text-gray-500 text-center">Ti rispondiamo su WhatsApp appena verifichiamo la disponibilità.</p>
             </div>
           </div>
         </div>
