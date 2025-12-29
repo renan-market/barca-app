@@ -45,30 +45,28 @@ const BOAT_IMAGES = [
 const EXPERIENCES: Experience[] = [
   { id: "day", title: "Day Charter", subtitle: "Giornata intera in mare", durationLabel: "8 ore" },
   { id: "halfday", title: "Mezza giornata", subtitle: "Mattina o pomeriggio in mare", durationLabel: "4 ore" },
-  { id: "sunset", title: "Sunset", subtitle: "Tramonto + aperitivo", durationLabel: "3 ore" },
+  { id: "sunset", title: "Sunset", subtitle: "Tramonto + aperitivo", durationLabel: "2h30" }, // ✅ 2h30
   { id: "overnight", title: "Pernottamento", subtitle: "Multi-day (con notti)", durationLabel: "Da/A" },
   { id: "custom", title: "Personalizzata", subtitle: "Extra + richiesta su misura", durationLabel: "variabile" },
 ];
 
-// ✅ PREZZI STAGIONALI (base)
+// ✅ PREZZI STAGIONALI (fallback, fuori Apr–Ott)
 const PRICES: Record<SeasonKey, { day: number; halfday: number; sunset: number; night: number }> = {
   Bassa: { day: 650, halfday: 450, sunset: 420, night: 845 },
   Media: { day: 850, halfday: 600, sunset: 520, night: 1105 },
   Alta: { day: 1100, halfday: 780, sunset: 650, night: 1430 },
 };
 
-// ✅ APRILE = EXTRA-BASSA (AUTO) — prezzi separati
-const APRIL_PRICES = { day: 380, halfday: 280, sunset: 260, night: 500 } as const;
+// ✅ LISTINO DEFINITIVO APR–OTT (prezzi base barca)
+const APRIL_PRICES = { day: 460, halfday: 280, sunset: 180, night: 0 } as const;
+const MAY_PRICES = { day: 650, halfday: 400, sunset: 260, night: 0 } as const;
+const JUNE_PRICES = { day: 800, halfday: 500, sunset: 320, night: 0 } as const;
+const JULY_PRICES = { day: 920, halfday: 580, sunset: 380, night: 0 } as const;
+const AUGUST_PRICES = { day: 1000, halfday: 620, sunset: 420, night: 0 } as const;
+const SEPTEMBER_PRICES = { day: 880, halfday: 550, sunset: 360, night: 0 } as const;
+const OCTOBER_PRICES = { day: 650, halfday: 400, sunset: 260, night: 0 } as const;
 
-// ✅ BASSA (Maggio + Ottobre) — prezzi ricalcolati dal Day 460
-const MAY_OCT_PRICES = { day: 460, halfday: 320, sunset: 290, night: 575 } as const;
-
-// ✅ GIUGNO / LUGLIO / AGOSTO (mese-specifici)
-const JUNE_PRICES = { day: 600, halfday: 420, sunset: 370, night: 780 } as const;
-const JULY_PRICES = { day: 700, halfday: 500, sunset: 410, night: 910 } as const;
-const AUGUST_PRICES = { day: 800, halfday: 570, sunset: 470, night: 1040 } as const;
-
-// ✅ EXTRA (transfer tolto) — ✅ PULIZIA FINALE RIMOSSA
+// ✅ EXTRA opzionali (transfer tolto)
 const EXTRA = {
   seabob: 650,
   drinksPremium: 150,
@@ -76,48 +74,21 @@ const EXTRA = {
   gopro: 80,
 } as const;
 
-/**
- * ✅ FIX STAGIONI (Regola desiderata)
- * - Alta: Luglio + Agosto
- * - Media: Giugno + Settembre
- * - Bassa: Aprile + Maggio + Ottobre + resto (Nov–Mar)
- *
- * Inoltre: safe fallback per evitare errori runtime (500)
- */
-function getSeasonFromDate(d: Date | null | undefined): SeasonKey {
-  if (!d || Number.isNaN(d.getTime())) return "Bassa";
-  const month = d.getMonth(); // 0-11
-  if (month === 6 || month === 7) return "Alta"; // Luglio, Agosto
-  if (month === 5 || month === 8) return "Media"; // Giugno, Settembre
-  return "Bassa";
-}
+// ✅ EXTRA OBBLIGATORI (day/mezza/sunset)
+const MANDATORY_DAY = {
+  skipper: 170,
+  cleaning: 50,
+  fuel: 40,
+} as const;
 
-// ✅ APRILE check (mese 3 = aprile)
-function isApril(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 3;
-}
-
-// ✅ MAGGIO o OTTOBRE (mese 4 = maggio, mese 9 = ottobre)
-function isMayOrOctober(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  const m = d.getMonth();
-  return m === 4 || m === 9;
-}
-
-// ✅ GIUGNO / LUGLIO / AGOSTO
-function isJune(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 5;
-}
-function isJuly(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 6;
-}
-function isAugust(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 7;
-}
+// ✅ EXTRA OBBLIGATORI (overnight/week)
+const MANDATORY_WEEK = {
+  skipper: 1400,
+  cleaning: 50,
+  fuelPerHourPerEngine: 15,
+  engines: 2,
+  avgEngineHours: 15, // media settimana
+} as const;
 
 function formatEUR(value: number) {
   return new Intl.NumberFormat("it-IT", {
@@ -153,34 +124,124 @@ function isBaseExperience(id: ExperienceId) {
   return id === "day" || id === "halfday" || id === "sunset" || id === "overnight";
 }
 
-// ✅ prezzi mese-specifici: Aprile → Mag/Ott → Giugno → Luglio → Agosto → default stagione
-function getEffectivePrices(args: { season: SeasonKey; auto: boolean; baseDate: Date | null }) {
-  // Aprile solo in AUTO (extra-bassa)
-  if (args.auto && isApril(args.baseDate)) return APRIL_PRICES;
+/**
+ * ✅ FIX STAGIONI (fallback)
+ * - Alta: Luglio + Agosto
+ * - Media: Giugno + Settembre
+ * - Bassa: resto
+ */
+function getSeasonFromDate(d: Date | null | undefined): SeasonKey {
+  if (!d || Number.isNaN(d.getTime())) return "Bassa";
+  const month = d.getMonth(); // 0-11
+  if (month === 6 || month === 7) return "Alta"; // Luglio, Agosto
+  if (month === 5 || month === 8) return "Media"; // Giugno, Settembre
+  return "Bassa";
+}
 
-  // Maggio/Ottobre: Bassa, in base alla data (AUTO + MANUALE)
-  if (args.season === "Bassa" && isMayOrOctober(args.baseDate)) return MAY_OCT_PRICES;
+// ✅ Orari per mese (Apr–Ott) — solo display (non cambia grafica)
+function getTimeRangeFor(args: {
+  baseDate: Date | null;
+  exp: ExperienceId;
+  halfdaySlot: HalfDaySlot;
+}): string | null {
+  const d = args.baseDate;
+  if (!d || Number.isNaN(d.getTime())) return null;
 
-  // Giugno/Luglio/Agosto: mese-specifici (AUTO + MANUALE), in base alla data
-  if (isJune(args.baseDate)) return JUNE_PRICES;
-  if (isJuly(args.baseDate)) return JULY_PRICES;
-  if (isAugust(args.baseDate)) return AUGUST_PRICES;
+  const m = d.getMonth(); // 0-11
+  const exp = args.exp;
 
+  // helper
+  const halfAM = (from: string, to: string) => (args.halfdaySlot === "Mattina" ? `${from}–${to}` : null);
+  const halfPM = (from: string, to: string) => (args.halfdaySlot === "Pomeriggio" ? `${from}–${to}` : null);
+
+  // APRILE (3)
+  if (m === 3) {
+    if (exp === "sunset") return "17:30–20:00";
+    if (exp === "day") return "10:00–18:00";
+    if (exp === "halfday") return args.halfdaySlot === "Mattina" ? "10:00–14:00" : "14:30–18:30";
+    return null;
+  }
+
+  // MAGGIO (4)
+  if (m === 4) {
+    if (exp === "sunset") return "18:00–20:30";
+    if (exp === "day") return "10:00–18:00";
+    if (exp === "halfday") return args.halfdaySlot === "Mattina" ? "10:00–14:00" : "15:00–19:00";
+    return null;
+  }
+
+  // GIUGNO (5)
+  if (m === 5) {
+    if (exp === "sunset") return "18:45–21:15";
+    if (exp === "day") return "10:00–18:00";
+    if (exp === "halfday") return args.halfdaySlot === "Mattina" ? "10:00–14:00" : "15:30–19:30";
+    return null;
+  }
+
+  // LUGLIO (6)
+  if (m === 6) {
+    if (exp === "sunset") return "18:45–21:15";
+    if (exp === "day") return "10:00–18:00";
+    if (exp === "halfday") return args.halfdaySlot === "Mattina" ? "10:00–14:00" : "16:00–20:00";
+    return null;
+  }
+
+  // AGOSTO (7)
+  if (m === 7) {
+    if (exp === "sunset") return "18:15–20:45";
+    if (exp === "day") return "10:00–18:00";
+    if (exp === "halfday") return args.halfdaySlot === "Mattina" ? "10:00–14:00" : "15:30–19:30";
+    return null;
+  }
+
+  // SETTEMBRE (8)
+  if (m === 8) {
+    if (exp === "sunset") return "17:30–20:00";
+    if (exp === "day") return "10:00–18:00";
+    if (exp === "halfday") return args.halfdaySlot === "Mattina" ? "10:00–14:00" : "14:30–18:30";
+    return null;
+  }
+
+  // OTTOBRE (9)
+  if (m === 9) {
+    if (exp === "sunset") return "16:45–19:15";
+    if (exp === "day") return "10:00–18:00";
+    if (exp === "halfday") return args.halfdaySlot === "Mattina" ? "10:00–14:00" : "14:00–18:00";
+    return null;
+  }
+
+  return null;
+}
+
+// ✅ prezzi mese-specifici: Aprile → Maggio → Giugno → Luglio → Agosto → Settembre → Ottobre → fallback stagione
+function getEffectivePrices(args: { season: SeasonKey; baseDate: Date | null }) {
+  const d = args.baseDate;
+  if (d && !Number.isNaN(d.getTime())) {
+    const m = d.getMonth(); // 0-11
+    if (m === 3) return APRIL_PRICES;
+    if (m === 4) return MAY_PRICES;
+    if (m === 5) return JUNE_PRICES;
+    if (m === 6) return JULY_PRICES;
+    if (m === 7) return AUGUST_PRICES;
+    if (m === 8) return SEPTEMBER_PRICES;
+    if (m === 9) return OCTOBER_PRICES;
+  }
   return PRICES[args.season];
 }
 
-function calcBasePrice(args: {
-  season: SeasonKey;
-  exp: ExperienceId;
-  nights: number;
-  auto: boolean;
-  baseDate: Date | null;
-}) {
-  const p = getEffectivePrices({ season: args.season, auto: args.auto, baseDate: args.baseDate });
+function calcBasePrice(args: { season: SeasonKey; exp: ExperienceId; nights: number; baseDate: Date | null }) {
+  const p = getEffectivePrices({ season: args.season, baseDate: args.baseDate });
   if (args.exp === "day") return p.day;
   if (args.exp === "sunset") return p.sunset;
   if (args.exp === "halfday") return p.halfday;
-  if (args.exp === "overnight") return p.night * (args.nights || 0);
+
+  // overnight: (qui lasciamo come era: prezzo notte da PRICES fallback o da logica esterna)
+  if (args.exp === "overnight") {
+    // Se vuoi, qui domani mettiamo anche i prezzi pernottamento.
+    // Per ora manteniamo la logica esistente: usa p.night (fallback) * notti.
+    return p.night * (args.nights || 0);
+  }
+
   return null;
 }
 
@@ -236,6 +297,8 @@ export default function Page() {
         extrasTitle: "Extra (opzionali)",
         extrasSubtitle: "Seleziona e vedi il totale",
         extrasTotal: "Totale extra",
+        mandatoryTitle: "Extra obbligatori",
+        mandatorySubtitle: "Voci obbligatorie (mostrate separatamente)",
         date: "Data",
         dates: "Date",
         from: "Da",
@@ -255,9 +318,8 @@ export default function Page() {
         notesOpt: "Note (opzionale)",
         namePh: "Es. Renan",
         notesPh: "Orario preferito, porto, richieste speciali…",
-        included:
-          "Incluso: skipper, maschere e boccaglio, paddle SUP, dinghy. (per pernottamento: lenzuola e asciugamani)",
-        notIncluded: "Non incluso: carburante e cambusa.",
+        included: "Extra obbligatori: skipper + pulizia + carburante (vedi elenco).",
+        notIncluded: "Altri extra (opzionali) e cambusa.",
         waSend: "Invia su WhatsApp",
         waChecking: "Controllo disponibilità...",
         waClosed: "Date non disponibili",
@@ -265,6 +327,7 @@ export default function Page() {
         waReply: "Ti rispondiamo su WhatsApp appena verifichiamo la disponibilità.",
         language: "Lingua",
         payment: "Pagamento",
+        time: "Orario",
       },
       en: {
         title: "Booking request",
@@ -280,6 +343,8 @@ export default function Page() {
         extrasTitle: "Extras (optional)",
         extrasSubtitle: "Select and see the total",
         extrasTotal: "Extras total",
+        mandatoryTitle: "Mandatory extras",
+        mandatorySubtitle: "Mandatory items (shown separately)",
         date: "Date",
         dates: "Dates",
         from: "From",
@@ -299,8 +364,8 @@ export default function Page() {
         notesOpt: "Notes (optional)",
         namePh: "e.g. Renan",
         notesPh: "Preferred time, port, special requests…",
-        included: "Included: skipper, snorkel masks, SUP paddle, dinghy.",
-        notIncluded: "Not included: fuel and provisions.",
+        included: "Mandatory extras: skipper + cleaning + fuel (see list).",
+        notIncluded: "Other optional extras and provisions.",
         waSend: "Send on WhatsApp",
         waChecking: "Checking availability...",
         waClosed: "Dates not available",
@@ -308,6 +373,7 @@ export default function Page() {
         waReply: "We reply on WhatsApp as soon as we verify availability.",
         language: "Language",
         payment: "Payment",
+        time: "Time",
       },
       es: {
         title: "Solicitud de reserva",
@@ -325,6 +391,8 @@ export default function Page() {
         extrasTitle: "Extras (opcional)",
         extrasSubtitle: "Selecciona y mira el total",
         extrasTotal: "Total extras",
+        mandatoryTitle: "Extras obligatorios",
+        mandatorySubtitle: "Elementos obligatorios (mostrados aparte)",
         date: "Fecha",
         dates: "Fechas",
         from: "Desde",
@@ -344,8 +412,8 @@ export default function Page() {
         notesOpt: "Notas (opcional)",
         namePh: "Ej. Renan",
         notesPh: "Hora preferida, puerto, peticiones…",
-        included: "Incluye: patrón, máscaras y snorkel, SUP, dinghy.",
-        notIncluded: "No incluye: combustible y provisiones.",
+        included: "Extras obligatorios: patrón + limpieza + combustible (ver lista).",
+        notIncluded: "Otros extras opcionales y provisiones.",
         waSend: "Enviar por WhatsApp",
         waChecking: "Comprobando disponibilidad...",
         waClosed: "Fechas no disponibles",
@@ -353,6 +421,7 @@ export default function Page() {
         waReply: "Respondemos por WhatsApp cuando confirmemos disponibilidad.",
         language: "Idioma",
         payment: "Pago",
+        time: "Horario",
       },
       fr: {
         title: "Demande de réservation",
@@ -370,6 +439,8 @@ export default function Page() {
         extrasTitle: "Extras (optionnels)",
         extrasSubtitle: "Sélectionne et vois le total",
         extrasTotal: "Total extras",
+        mandatoryTitle: "Extras obligatoires",
+        mandatorySubtitle: "Éléments obligatoires (affichés séparément)",
         date: "Date",
         dates: "Dates",
         from: "Du",
@@ -389,8 +460,8 @@ export default function Page() {
         notesOpt: "Notes (optionnel)",
         namePh: "Ex. Renan",
         notesPh: "Heure préférée, port, demandes…",
-        included: "Inclus : skipper, masques et tuba, SUP, annexe.",
-        notIncluded: "Non inclus : carburant et provisions.",
+        included: "Extras obligatoires : skipper + ménage + carburant (voir liste).",
+        notIncluded: "Autres extras optionnels et provisions.",
         waSend: "Envoyer sur WhatsApp",
         waChecking: "Vérification disponibilité...",
         waClosed: "Dates indisponibles",
@@ -398,6 +469,7 @@ export default function Page() {
         waReply: "Nous répondons sur WhatsApp dès que la disponibilité est vérifiée.",
         language: "Langue",
         payment: "Paiement",
+        time: "Horaire",
       },
       ru: {
         title: "Запрос на бронирование",
@@ -413,6 +485,8 @@ export default function Page() {
         extrasTitle: "Дополнительно (опционально)",
         extrasSubtitle: "Выберите и посмотрите итог",
         extrasTotal: "Итого доп.",
+        mandatoryTitle: "Обязательные доплаты",
+        mandatorySubtitle: "Обязательные пункты (показаны отдельно)",
         date: "Дата",
         dates: "Даты",
         from: "С",
@@ -432,8 +506,8 @@ export default function Page() {
         notesOpt: "Комментарий (необязательно)",
         namePh: "Напр. Renan",
         notesPh: "Время, порт, пожелания…",
-        included: "Включено: шкипер, маски/трубки, SUP, динги.",
-        notIncluded: "Не включено: топливо и провизия.",
+        included: "Обязательные доплаты: шкипер + уборка + топливо (см. список).",
+        notIncluded: "Другие опции и провизия.",
         waSend: "WhatsApp",
         waChecking: "Проверяем доступность...",
         waClosed: "Даты заняты",
@@ -441,6 +515,7 @@ export default function Page() {
         waReply: "Ответим в WhatsApp после проверки.",
         language: "Язык",
         payment: "Оплата",
+        time: "Время",
       },
     };
     return (key: string) => dict[lang][key] ?? key;
@@ -463,7 +538,7 @@ export default function Page() {
   const [name, setName] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
-  const [halfdaySlot, setHalfdaySlot] = useState<HalfDaySlot>("Mattina");
+  const [halfdaySlot, setHalfDaySlot] = useState<HalfDaySlot>("Mattina");
 
   const [extraSeabob, setExtraSeabob] = useState(false);
   const [extraDrinks, setExtraDrinks] = useState(false);
@@ -495,11 +570,20 @@ export default function Page() {
   const autoSeason = useMemo<SeasonKey>(() => getSeasonFromDate(seasonBaseDate ?? new Date()), [seasonBaseDate]);
   const season: SeasonKey = seasonMode === "auto" ? autoSeason : manualSeason;
 
-  // ✅ etichetta visibile: se aprile e auto, mostra "Aprile"
+  // ✅ etichetta visibile: se Aprile mostra "Aprile"
   const seasonLabel = useMemo(() => {
-    if (seasonMode === "auto" && isApril(seasonBaseDate)) return "Aprile";
+    const d = seasonBaseDate;
+    if (!d || Number.isNaN(d.getTime())) return season;
+    const m = d.getMonth();
+    if (m === 3) return "Aprile";
+    if (m === 4) return "Maggio";
+    if (m === 5) return "Giugno";
+    if (m === 6) return "Luglio";
+    if (m === 7) return "Agosto";
+    if (m === 8) return "Settembre";
+    if (m === 9) return "Ottobre";
     return season;
-  }, [seasonMode, season, seasonBaseDate]);
+  }, [season, seasonBaseDate]);
 
   const nights = useMemo(() => {
     if (!usesOvernightDates) return 0;
@@ -514,21 +598,20 @@ export default function Page() {
         season,
         exp: baseExpForCalc,
         nights,
-        auto: seasonMode === "auto",
         baseDate: seasonBaseDate,
       }),
-    [season, baseExpForCalc, nights, seasonMode, seasonBaseDate]
+    [season, baseExpForCalc, nights, seasonBaseDate]
   );
 
   const priceLabel = useMemo(() => {
-    const effective = getEffectivePrices({ season, auto: seasonMode === "auto", baseDate: seasonBaseDate });
+    const effective = getEffectivePrices({ season, baseDate: seasonBaseDate });
     if (baseExpForCalc === "overnight") {
       const perNight = effective.night;
       if (!nights) return `${formatEUR(perNight)} / notte`;
       return `${formatEUR(perNight)} × ${nights} notti`;
     }
     return basePrice !== null ? formatEUR(basePrice) : "Da definire";
-  }, [season, nights, baseExpForCalc, basePrice, seasonMode, seasonBaseDate]);
+  }, [season, nights, baseExpForCalc, basePrice, seasonBaseDate]);
 
   const extrasTotal = useMemo(() => {
     const catering = extraCatering ? EXTRA.cateringPerPerson * people : 0;
@@ -540,7 +623,32 @@ export default function Page() {
     );
   }, [extraSeabob, extraDrinks, extraCatering, extraGopro, people]);
 
-  const totalEstimated = useMemo(() => (basePrice ?? 0) + extrasTotal, [basePrice, extrasTotal]);
+  // ✅ Mandatory extras (sempre)
+  const mandatoryExtras = useMemo(() => {
+    if (!usesOvernightDates) {
+      return {
+        skipper: MANDATORY_DAY.skipper,
+        cleaning: MANDATORY_DAY.cleaning,
+        fuel: MANDATORY_DAY.fuel,
+        fuelNote: null as string | null,
+      };
+    }
+    const fuelEst = MANDATORY_WEEK.avgEngineHours * MANDATORY_WEEK.fuelPerHourPerEngine * MANDATORY_WEEK.engines; // 15h * 15 * 2 = 450
+    return {
+      skipper: MANDATORY_WEEK.skipper,
+      cleaning: MANDATORY_WEEK.cleaning,
+      fuel: fuelEst, // solo stima per total
+      fuelNote: `Fuel: ${MANDATORY_WEEK.fuelPerHourPerEngine}€/h × ${MANDATORY_WEEK.engines} motori (stima media ${MANDATORY_WEEK.avgEngineHours}h ≈ ${formatEUR(
+        fuelEst
+      )})`,
+    };
+  }, [usesOvernightDates]);
+
+  const mandatoryTotal = useMemo(() => {
+    return (mandatoryExtras.skipper || 0) + (mandatoryExtras.cleaning || 0) + (mandatoryExtras.fuel || 0);
+  }, [mandatoryExtras]);
+
+  const totalEstimated = useMemo(() => (basePrice ?? 0) + mandatoryTotal + extrasTotal, [basePrice, mandatoryTotal, extrasTotal]);
 
   function setFromSafe(v: string) {
     setDateFrom(v);
@@ -613,6 +721,12 @@ export default function Page() {
   const waDisabled = checkingAvailability || !!availabilityError || hasClosedInSelection;
   const canSendWhatsapp = !waDisabled;
 
+  const timeRange = useMemo(() => {
+    const exp = baseExpForCalc;
+    if (exp !== "day" && exp !== "halfday" && exp !== "sunset") return null;
+    return getTimeRangeFor({ baseDate: seasonBaseDate, exp, halfdaySlot });
+  }, [baseExpForCalc, seasonBaseDate, halfdaySlot]);
+
   const whatsappText = useMemo(() => {
     const lines: string[] = [];
     lines.push(`Ciao! Vorrei fare una *richiesta* per ${BOAT.name} (${BOAT.location}).`);
@@ -629,7 +743,11 @@ export default function Page() {
       lines.push(`*Esperienza:* ${experience.title} (${experience.durationLabel})`);
     }
 
-    const effective = getEffectivePrices({ season, auto: seasonMode === "auto", baseDate: seasonBaseDate });
+    if (timeRange && !usesOvernightDates) {
+      lines.push(`*Orario:* ${timeRange}`);
+    }
+
+    const effective = getEffectivePrices({ season, baseDate: seasonBaseDate });
 
     if (usesOvernightDates) {
       lines.push(`*Da:* ${dateFrom}`);
@@ -639,28 +757,36 @@ export default function Page() {
       lines.push(`*Dettaglio:* ${priceLabel}`);
     } else {
       lines.push(`*Data:* ${date}`);
-      lines.push(
-        `*Prezzo base stimato:* ${basePrice !== null ? formatEUR(basePrice) : "Da definire"} (${seasonLabel})`
-      );
+      lines.push(`*Prezzo base barca:* ${basePrice !== null ? formatEUR(basePrice) : "Da definire"} (${seasonLabel})`);
     }
 
-    lines.push(`*Persone:* ${people}`);
-    if (extrasTotal > 0) lines.push(`*Extra:* ${formatEUR(extrasTotal)}`);
+    // ✅ mandatory extras (elencati)
+    lines.push("");
+    lines.push("*Extra obbligatori:*");
+    if (!usesOvernightDates) {
+      lines.push(`- Skipper: ${formatEUR(MANDATORY_DAY.skipper)}`);
+      lines.push(`- Pulizia finale: ${formatEUR(MANDATORY_DAY.cleaning)}`);
+      lines.push(`- Carburante (forfait day): ${formatEUR(MANDATORY_DAY.fuel)}`);
+      lines.push(`*Totale extra obbligatori:* ${formatEUR(MANDATORY_DAY.skipper + MANDATORY_DAY.cleaning + MANDATORY_DAY.fuel)}`);
+    } else {
+      const fuelEst = MANDATORY_WEEK.avgEngineHours * MANDATORY_WEEK.fuelPerHourPerEngine * MANDATORY_WEEK.engines;
+      lines.push(`- Skipper (7 giorni): ${formatEUR(MANDATORY_WEEK.skipper)}`);
+      lines.push(`- Pulizia finale: ${formatEUR(MANDATORY_WEEK.cleaning)}`);
+      lines.push(
+        `- Carburante: ${MANDATORY_WEEK.fuelPerHourPerEngine}€/h × ${MANDATORY_WEEK.engines} motori (stima ${MANDATORY_WEEK.avgEngineHours}h ≈ ${formatEUR(
+          fuelEst
+        )})`
+      );
+      lines.push(`*Totale extra obbligatori stimato:* ${formatEUR(MANDATORY_WEEK.skipper + MANDATORY_WEEK.cleaning + fuelEst)}`);
+    }
+
+    if (extrasTotal > 0) lines.push(`*Extra opzionali:* ${formatEUR(extrasTotal)}`);
     lines.push(`*Totale stimato:* ${formatEUR(totalEstimated)}`);
 
     if (hasClosedInSelection) {
       lines.push("");
       lines.push(`⚠️ Nota: nel calendario risultano occupate queste date: ${closedDates.join(", ")}`);
     }
-
-    lines.push("");
-    lines.push(
-      "*Incluso:* skipper, maschere e boccaglio, paddle SUP, dinghy. (per pernottamento: lenzuola e asciugamani)"
-    );
-    lines.push("*Non incluso:* carburante e cambusa.");
-
-    if (name.trim()) lines.push(`*Nome:* ${name.trim()}`);
-    if (notes.trim()) lines.push(`*Note:* ${notes.trim()}`);
 
     lines.push("");
     lines.push("Grazie! 🙏");
@@ -679,7 +805,6 @@ export default function Page() {
     basePrice,
     season,
     seasonLabel,
-    seasonMode,
     seasonBaseDate,
     name,
     notes,
@@ -689,7 +814,7 @@ export default function Page() {
     priceLabel,
     hasClosedInSelection,
     closedDates,
-    t,
+    timeRange,
   ]);
 
   const whatsappLink = `https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappText}`;
@@ -820,6 +945,13 @@ export default function Page() {
                 <div className="grid grid-cols-2 gap-3">
                   {EXPERIENCES.map((exp) => {
                     const active = exp.id === selected;
+
+                    // ✅ tempo pill per le esperienze day/half/sunset basato sulla data selezionata
+                    const expTime =
+                      exp.id === "day" || exp.id === "halfday" || exp.id === "sunset"
+                        ? getTimeRangeFor({ baseDate: seasonBaseDate, exp: exp.id, halfdaySlot })
+                        : null;
+
                     return (
                       <button
                         key={exp.id}
@@ -835,8 +967,16 @@ export default function Page() {
                       >
                         <div className="font-semibold text-gray-900">{exp.title}</div>
                         <div className="text-xs text-slate-800 mt-1">{exp.subtitle}</div>
-                        <div className="mt-2 inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium bg-gray-100 text-gray-700">
-                          {exp.durationLabel}
+
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <div className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium bg-gray-100 text-gray-700">
+                            {exp.durationLabel}
+                          </div>
+                          {expTime && (
+                            <div className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium bg-gray-100 text-gray-700">
+                              {expTime}
+                            </div>
+                          )}
                         </div>
                       </button>
                     );
@@ -952,9 +1092,7 @@ export default function Page() {
               {/* DATA + PERSONE */}
               <section className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-sm font-semibold text-gray-900">
-                    {usesOvernightDates ? t("dates") : t("date")}
-                  </label>
+                  <label className="text-sm font-semibold text-gray-900">{usesOvernightDates ? t("dates") : t("date")}</label>
 
                   {usesOvernightDates ? (
                     <div className="mt-2 space-y-2">
@@ -997,6 +1135,14 @@ export default function Page() {
                           {seasonMode === "auto" ? seasonLabel : autoSeason}
                         </span>
                       </div>
+                      {timeRange && (
+                        <div className="mt-2 text-xs text-slate-900">
+                          {t("time")}:{" "}
+                          <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">
+                            {timeRange}
+                          </span>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -1015,7 +1161,47 @@ export default function Page() {
                 </div>
               </section>
 
-              {/* SELETTORE STAGIONE */}
+              {/* SELETTORE SLOT MEZZA (solo se halfday selezionata) */}
+              {selected === "halfday" && (
+                <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs text-slate-800">Slot</div>
+                      <div className="font-bold text-gray-900">Mattina / Pomeriggio</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(["Mattina", "Pomeriggio"] as HalfDaySlot[]).map((s) => {
+                      const active = halfdaySlot === s;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setHalfDaySlot(s)}
+                          className={[
+                            "rounded-xl px-3 py-2 text-sm font-semibold border transition",
+                            "shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
+                            active
+                              ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200"
+                              : "border-gray-200 bg-white hover:border-gray-300",
+                          ].join(" ")}
+                        >
+                          {s}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {timeRange && (
+                    <p className="text-xs text-slate-800 mt-3">
+                      {t("time")}: <b>{timeRange}</b>
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {/* SELETTORE STAGIONE (manteniamo, non tocchiamo grafica) */}
               <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -1080,21 +1266,71 @@ export default function Page() {
                 <p className="text-xs text-slate-800 mt-3">{t("manualHint")}</p>
               </section>
 
+              {/* ✅ NUOVA CARD: EXTRA OBBLIGATORI (stesso stile delle altre) */}
+              <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs text-slate-800">{t("mandatoryTitle")}</div>
+                    <div className="font-bold text-gray-900">{t("mandatorySubtitle")}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-slate-800">Totale</div>
+                    <div className="font-extrabold text-gray-900">{formatEUR(mandatoryTotal)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-2 text-sm">
+                  {!usesOvernightDates ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-900">Skipper</span>
+                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_DAY.skipper)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-900">Pulizia finale</span>
+                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_DAY.cleaning)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-900">Carburante (forfait day)</span>
+                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_DAY.fuel)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-900">Skipper (7 giorni)</span>
+                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_WEEK.skipper)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-900">Pulizia finale</span>
+                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_WEEK.cleaning)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-900">Carburante (stima)</span>
+                        <span className="font-semibold text-gray-900">{formatEUR(mandatoryExtras.fuel)}</span>
+                      </div>
+                      {mandatoryExtras.fuelNote && <p className="text-xs text-slate-800 mt-2">{mandatoryExtras.fuelNote}</p>}
+                    </>
+                  )}
+                </div>
+              </section>
+
               {/* PREZZO */}
               <section className="rounded-2xl border border-gray-200 bg-gradient-to-b from-sky-50 to-white p-4 shadow-[0_8px_22px_rgba(0,0,0,0.08)]">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs text-slate-800">{t("estimated")}</div>
+
                     {baseExpForCalc === "overnight" ? (
                       <>
                         <div className="text-lg font-extrabold">
-                          {formatEUR(getEffectivePrices({ season, auto: seasonMode === "auto", baseDate: seasonBaseDate }).night)}{" "}
-                          / notte
+                          {formatEUR(getEffectivePrices({ season, baseDate: seasonBaseDate }).night)} / notte
                         </div>
                         <div className="text-xs text-slate-800 mt-1">{priceLabel}</div>
-                        {extrasTotal > 0 && (
-                          <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>
-                        )}
+
+                        <div className="text-xs text-slate-800 mt-1">Extra obbligatori: {formatEUR(mandatoryTotal)}</div>
+                        {extrasTotal > 0 && <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>}
+
                         <div className="text-xs text-slate-900 mt-1">
                           Totale stimato: <b>{formatEUR(totalEstimated)}</b>
                         </div>
@@ -1102,9 +1338,10 @@ export default function Page() {
                     ) : (
                       <>
                         <div className="text-lg font-extrabold">{basePrice !== null ? formatEUR(basePrice) : "Da definire"}</div>
-                        {extrasTotal > 0 && (
-                          <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>
-                        )}
+
+                        <div className="text-xs text-slate-800 mt-1">Extra obbligatori: {formatEUR(mandatoryTotal)}</div>
+                        {extrasTotal > 0 && <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>}
+
                         <div className="text-xs text-slate-900 mt-1">
                           Totale stimato: <b>{formatEUR(totalEstimated)}</b>
                         </div>
