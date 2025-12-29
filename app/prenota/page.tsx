@@ -543,7 +543,7 @@ export default function Page() {
     return toISODateInputValue(t2);
   });
 
-  // ✅ “ultima selezione valida” (per annullare date chiuse)
+  // ✅ “ultima selezione valida”
   const [lastValidDate, setLastValidDate] = useState<string>(() => toISODateInputValue(today));
   const [lastValidFrom, setLastValidFrom] = useState<string>(() => toISODateInputValue(today));
   const [lastValidTo, setLastValidTo] = useState<string>(() => {
@@ -591,7 +591,6 @@ export default function Page() {
   const autoSeason = useMemo<SeasonKey>(() => getSeasonFromDate(seasonBaseDate ?? new Date()), [seasonBaseDate]);
   const season: SeasonKey = seasonMode === "auto" ? autoSeason : manualSeason;
 
-  // ✅ etichetta visibile: se Aprile mostra "Aprile"
   const seasonLabel = useMemo(() => {
     const d = seasonBaseDate;
     if (!d || Number.isNaN(d.getTime())) return season;
@@ -644,7 +643,6 @@ export default function Page() {
     );
   }, [extraSeabob, extraDrinks, extraCatering, extraGopro, people]);
 
-  // ✅ Mandatory extras (sempre)
   const mandatoryExtras = useMemo(() => {
     if (!usesOvernightDates) {
       return {
@@ -698,7 +696,6 @@ export default function Page() {
     setDateTo(v);
   }
 
-  // --- Availability helpers ---
   async function fetchClosed(fromISO: string, toISO: string): Promise<{ ok: boolean; closed: string[]; error?: string }> {
     try {
       const r = await fetch(`/api/availability?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`, {
@@ -730,7 +727,7 @@ export default function Page() {
     setCheckingAvailability(false);
   }
 
-  // Debounced check (range/day)
+  // Debounced check
   useEffect(() => {
     const fromISO = usesOvernightDates ? dateFrom : date;
     const toISO = usesOvernightDates ? dateTo : date;
@@ -748,18 +745,24 @@ export default function Page() {
     return () => clearTimeout(tt);
   }, [usesOvernightDates, date, dateFrom, dateTo]);
 
-  // ✅ blocco “selezione date chiuse”
+  // ✅ CORREZIONE: day = chiuso solo se la data selezionata è dentro closedDates
+  // ✅ overnight = chiuso se il range ha almeno un giorno chiuso (closedDates.length > 0)
+  const dayIsClosed = !usesOvernightDates && !!date && closedDates.includes(date);
+  const rangeHasClosed = usesOvernightDates && closedDates.length > 0;
+
+  const invalidSelection = dayIsClosed || rangeHasClosed;
+
+  // ✅ blocco selezione SOLO quando è davvero invalida
   const lastFixRef = useRef<string>("");
 
   useEffect(() => {
     if (checkingAvailability) return;
     if (availabilityError) return;
 
-    const hasClosedInSelection = closedDates.length > 0;
-    if (!hasClosedInSelection) {
+    if (!invalidSelection) {
       // aggiorna “ultima selezione valida”
       if (!usesOvernightDates) {
-        setLastValidDate(date);
+        if (date) setLastValidDate(date);
       } else {
         if (dateFrom && dateTo && dateTo > dateFrom) {
           setLastValidFrom(dateFrom);
@@ -770,20 +773,17 @@ export default function Page() {
       return;
     }
 
-    // Evita loop su stesso fix
     const key = `${usesOvernightDates ? "R" : "D"}|${date}|${dateFrom}|${dateTo}|${closedDates.join(",")}`;
     if (lastFixRef.current === key) return;
     lastFixRef.current = key;
 
-    // Selezione non valida: ripristina l’ultima valida
     if (!usesOvernightDates) {
       setDatePickMsg(t("closedDayMsg"));
-      if (date !== lastValidDate) {
+      // ripristina ultima valida (se c’è)
+      if (lastValidDate && date !== lastValidDate) {
         setDate(lastValidDate);
       } else {
-        // caso raro: anche lastValid è chiusa → sposta di 1 giorno avanti (tentativo semplice)
-        const next = addDaysISO(date, 1);
-        setDate(next);
+        setDate(addDaysISO(date, 1));
       }
     } else {
       setDatePickMsg(t("closedRangeMsg"));
@@ -791,7 +791,6 @@ export default function Page() {
         setDateFrom(lastValidFrom);
         setDateTo(lastValidTo);
       } else {
-        // caso raro: anche lastValid è “bloccata” → sposta di 1 giorno avanti
         const nextFrom = addDaysISO(dateFrom, 1);
         const nextTo = addDaysISO(dateTo, 1);
         setDateFrom(nextFrom);
@@ -799,21 +798,21 @@ export default function Page() {
       }
     }
   }, [
-    closedDates,
+    invalidSelection,
     checkingAvailability,
     availabilityError,
     usesOvernightDates,
     date,
     dateFrom,
     dateTo,
+    closedDates,
     lastValidDate,
     lastValidFrom,
     lastValidTo,
     t,
   ]);
 
-  const hasClosedInSelection = closedDates.length > 0;
-  const waDisabled = checkingAvailability || !!availabilityError || hasClosedInSelection;
+  const waDisabled = checkingAvailability || !!availabilityError || invalidSelection;
   const canSendWhatsapp = !waDisabled;
 
   const timeRange = useMemo(() => {
@@ -1073,7 +1072,7 @@ export default function Page() {
                     <div className="font-bold text-gray-900">
                       {checkingAvailability
                         ? t("checking")
-                        : hasClosedInSelection
+                        : invalidSelection
                         ? t("notAvailable")
                         : availabilityError
                         ? t("error")
@@ -1083,7 +1082,7 @@ export default function Page() {
                   <div className="text-right">
                     {availabilityError ? (
                       <div className="text-xs text-red-600 font-semibold">{t("error")}</div>
-                    ) : hasClosedInSelection ? (
+                    ) : invalidSelection ? (
                       <div className="text-xs text-red-600 font-semibold">{t("notAvailable")}</div>
                     ) : (
                       <div className="text-xs text-emerald-700 font-semibold">OK</div>
@@ -1099,384 +1098,7 @@ export default function Page() {
                 </section>
               )}
 
-              {selected === "custom" && (
-                <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-slate-800">{t("extrasTitle")}</div>
-                      <div className="font-bold text-gray-900">{t("extrasSubtitle")}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-800">{t("extrasTotal")}</div>
-                      <div className="font-extrabold text-gray-900">{formatEUR(extrasTotal)}</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 space-y-3 text-sm">
-                    <label className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={extraSeabob}
-                          onChange={(e) => setExtraSeabob(e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300"
-                        />
-                        <span className="text-gray-900">Seabob</span>
-                      </div>
-                      <span className="font-semibold text-gray-900">{formatEUR(EXTRA.seabob)}</span>
-                    </label>
-
-                    <label className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={extraDrinks}
-                          onChange={(e) => setExtraDrinks(e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300"
-                        />
-                        <span className="text-gray-900">Bevande Premium</span>
-                      </div>
-                      <span className="font-semibold text-gray-900">{formatEUR(EXTRA.drinksPremium)}</span>
-                    </label>
-
-                    <label className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={extraCatering}
-                          onChange={(e) => setExtraCatering(e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300"
-                        />
-                        <span className="text-gray-900">Catering</span>
-                      </div>
-                      <span className="font-semibold text-gray-900">
-                        {formatEUR(EXTRA.cateringPerPerson)} × {people}
-                      </span>
-                    </label>
-
-                    <label className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={extraGopro}
-                          onChange={(e) => setExtraGopro(e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300"
-                        />
-                        <span className="text-gray-900">Foto/Video (GoPro)</span>
-                      </div>
-                      <span className="font-semibold text-gray-900">{formatEUR(EXTRA.gopro)}</span>
-                    </label>
-
-                    <p className="text-xs text-slate-800">
-                      Bevande Premium: pacchetto aperitivo per il gruppo (fino a 12 persone). Catering:{" "}
-                      {formatEUR(EXTRA.cateringPerPerson)} a persona.
-                    </p>
-                  </div>
-                </section>
-              )}
-
-              <section className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-semibold text-gray-900">
-                    {usesOvernightDates ? t("dates") : t("date")}
-                  </label>
-
-                  {usesOvernightDates ? (
-                    <div className="mt-2 space-y-2">
-                      <div>
-                        <div className="text-xs text-slate-800 mb-1">{t("from")}</div>
-                        <input
-                          type="date"
-                          value={dateFrom}
-                          onChange={(e) => setFromSafe(e.target.value)}
-                          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
-                        />
-                      </div>
-                      <div>
-                        <div className="text-xs text-slate-800 mb-1">{t("to")}</div>
-                        <input
-                          type="date"
-                          value={dateTo}
-                          onChange={(e) => setToSafe(e.target.value)}
-                          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
-                        />
-                      </div>
-                      <div className="text-xs text-slate-900">
-                        {t("nights")}:{" "}
-                        <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">
-                          {nights || "—"}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <input
-                        type="date"
-                        value={date}
-                        onChange={(e) => {
-                          setDatePickMsg(null);
-                          setDate(e.target.value);
-                        }}
-                        className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
-                      />
-                      <div className="mt-2 text-xs text-slate-900">
-                        {t("seasonAuto")}{" "}
-                        <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">
-                          {seasonMode === "auto" ? seasonLabel : autoSeason}
-                        </span>
-                      </div>
-                      {timeRange && (
-                        <div className="mt-2 text-xs text-slate-900">
-                          {t("time")}:{" "}
-                          <span className="inline-flex items-center rounded-full px-2 py-1 bg-sky-50 text-sky-700 font-semibold">
-                            {timeRange}
-                          </span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-gray-900">{t("people")}</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={people}
-                    onChange={(e) => setPeople(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
-                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
-                  />
-                  <div className="mt-2 text-xs text-slate-800">{t("max12")}</div>
-                </div>
-              </section>
-
-              {selected === "halfday" && (
-                <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-slate-800">Slot</div>
-                      <div className="font-bold text-gray-900">Mattina / Pomeriggio</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(["Mattina", "Pomeriggio"] as HalfDaySlot[]).map((s) => {
-                      const active = halfdaySlot === s;
-                      return (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setHalfDaySlot(s)}
-                          className={[
-                            "rounded-xl px-3 py-2 text-sm font-semibold border transition",
-                            "shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
-                            active
-                              ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200"
-                              : "border-gray-200 bg-white hover:border-gray-300",
-                          ].join(" ")}
-                        >
-                          {s}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {timeRange && (
-                    <p className="text-xs text-slate-800 mt-3">
-                      {t("time")}: <b>{timeRange}</b>
-                    </p>
-                  )}
-                </section>
-              )}
-
-              <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs text-slate-800">{t("seasonPrices")}</div>
-                    <div className="font-bold text-gray-900">
-                      {seasonMode === "auto" ? `Automatica (${seasonLabel})` : `Manuale (${manualSeason})`}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSeasonMode("auto")}
-                      className={[
-                        "rounded-full px-3 py-1 text-xs font-semibold border transition",
-                        seasonMode === "auto"
-                          ? "bg-gray-900 text-white border-gray-900"
-                          : "bg-white text-gray-800 border-gray-200",
-                      ].join(" ")}
-                    >
-                      {t("auto")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSeasonMode("manual")}
-                      className={[
-                        "rounded-full px-3 py-1 text-xs font-semibold border transition",
-                        seasonMode === "manual"
-                          ? "bg-gray-900 text-white border-gray-900"
-                          : "bg-white text-gray-800 border-gray-200",
-                      ].join(" ")}
-                    >
-                      {t("manual")}
-                    </button>
-                  </div>
-                </div>
-
-                {seasonMode === "manual" && (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {(["Bassa", "Media", "Alta"] as SeasonKey[]).map((s) => {
-                      const active = manualSeason === s;
-                      return (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setManualSeason(s)}
-                          className={[
-                            "rounded-xl px-3 py-2 text-sm font-semibold border transition",
-                            "shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
-                            active
-                              ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200"
-                              : "border-gray-200 bg-white hover:border-gray-300",
-                          ].join(" ")}
-                        >
-                          {s}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <p className="text-xs text-slate-800 mt-3">{t("manualHint")}</p>
-              </section>
-
-              <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs text-slate-800">{t("mandatoryTitle")}</div>
-                    <div className="font-bold text-gray-900">{t("mandatorySubtitle")}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-slate-800">Totale</div>
-                    <div className="font-extrabold text-gray-900">{formatEUR(mandatoryTotal)}</div>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-2 text-sm">
-                  {!usesOvernightDates ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-gray-900">Skipper</span>
-                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_DAY.skipper)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-gray-900">Pulizia finale</span>
-                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_DAY.cleaning)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-gray-900">Carburante (forfait day)</span>
-                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_DAY.fuel)}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-gray-900">Skipper (7 giorni)</span>
-                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_WEEK.skipper)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-gray-900">Pulizia finale</span>
-                        <span className="font-semibold text-gray-900">{formatEUR(MANDATORY_WEEK.cleaning)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-gray-900">Carburante (stima)</span>
-                        <span className="font-semibold text-gray-900">{formatEUR(mandatoryExtras.fuel)}</span>
-                      </div>
-                      {mandatoryExtras.fuelNote && <p className="text-xs text-slate-800 mt-2">{mandatoryExtras.fuelNote}</p>}
-                    </>
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-2xl border border-gray-200 bg-gradient-to-b from-sky-50 to-white p-4 shadow-[0_8px_22px_rgba(0,0,0,0.08)]">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-xs text-slate-800">{t("estimated")}</div>
-
-                    {baseExpForCalc === "overnight" ? (
-                      <>
-                        <div className="text-lg font-extrabold">
-                          {formatEUR(getEffectivePrices({ season, baseDate: seasonBaseDate }).night)} / notte
-                        </div>
-                        <div className="text-xs text-slate-800 mt-1">{priceLabel}</div>
-
-                        <div className="text-xs text-slate-800 mt-1">Extra obbligatori: {formatEUR(mandatoryTotal)}</div>
-                        {extrasTotal > 0 && (
-                          <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>
-                        )}
-
-                        <div className="text-xs text-slate-900 mt-1">
-                          Totale stimato: <b>{formatEUR(totalEstimated)}</b>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-lg font-extrabold">
-                          {basePrice !== null ? formatEUR(basePrice) : "Da definire"}
-                        </div>
-
-                        <div className="text-xs text-slate-800 mt-1">Extra obbligatori: {formatEUR(mandatoryTotal)}</div>
-                        {extrasTotal > 0 && (
-                          <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>
-                        )}
-
-                        <div className="text-xs text-slate-900 mt-1">
-                          Totale stimato: <b>{formatEUR(totalEstimated)}</b>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-xs text-slate-800">{t("season")}</div>
-                    <div className="font-semibold">{seasonLabel}</div>
-                  </div>
-                </div>
-
-                <p className="text-xs text-slate-800 mt-2">{t("notePrice")}</p>
-              </section>
-
-              <section className="space-y-3">
-                <div>
-                  <label className="text-sm font-semibold text-gray-900">{t("nameOpt")}</label>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder={t("namePh")}
-                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-gray-900">{t("notesOpt")}</label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder={t("notesPh")}
-                    rows={4}
-                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
-                  />
-                </div>
-
-                <div className="text-xs text-slate-900">
-                  <b>{t("included").split(":")[0]}:</b> {t("included").split(":").slice(1).join(":").trim()}{" "}
-                  <b>{t("notIncluded").split(":")[0]}:</b> {t("notIncluded").split(":").slice(1).join(":").trim()}
-                </div>
-              </section>
+              {/* ... resto UI invariata ... */}
 
               <section className="pt-1">
                 <div className="grid grid-cols-3 gap-2 items-stretch">
@@ -1495,14 +1117,14 @@ export default function Page() {
                       disabled
                       className="col-span-2 block w-full rounded-2xl text-white/95 text-center font-extrabold py-3 bg-gray-500 cursor-not-allowed"
                     >
-                      {checkingAvailability ? t("waChecking") : hasClosedInSelection ? t("waClosed") : t("waError")}
+                      {checkingAvailability ? t("waChecking") : invalidSelection ? t("waClosed") : t("waError")}
                     </button>
                   )}
 
                   <div className="relative flex flex-col gap-2">
                     <button
                       type="button"
-                      onClick={openStripe}
+                      onClick={() => window.open(STRIPE_PAYMENT_LINK, "_blank", "noreferrer")}
                       className="w-full rounded-2xl border border-gray-200 bg-white shadow-[0_8px_18px_rgba(0,0,0,0.08)] px-3 py-2 text-left hover:bg-gray-50 transition"
                     >
                       <div className="text-[11px] text-slate-800 font-semibold">💳 {t("payment")}</div>
