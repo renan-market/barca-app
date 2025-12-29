@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+const GOOGLE_PUBLIC_ICS =
+  "https://calendar.google.com/calendar/ical/b1ba30b7ea289cf18f05db50c90ae0e8f279412f4e381ca696a8cea47d3db9e8%40group.calendar.google.com/public/basic.ics";
+
 function ymd(d: Date) {
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -54,13 +57,29 @@ function expandEventToClosedDates(dtStart: Date, dtEnd: Date): string[] {
   return out;
 }
 
+/**
+ * Unfold lines (ICS spec): lines can be continued with CRLF + space
+ * We normalize and join them before parsing.
+ */
+function normalizeIcsLines(ics: string): string[] {
+  const normalized = ics.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const raw = normalized.split("\n");
+
+  const out: string[] = [];
+  for (const line of raw) {
+    if (!line) continue;
+    if ((line.startsWith(" ") || line.startsWith("\t")) && out.length > 0) {
+      out[out.length - 1] += line.trimStart();
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
 function parseClosedDatesFromIcs(ics: string): Set<string> {
   const closed = new Set<string>();
-
-  const lines = ics
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n");
+  const lines = normalizeIcsLines(ics);
 
   let inEvent = false;
   let dtStartRaw: string | null = null;
@@ -73,20 +92,17 @@ function parseClosedDatesFromIcs(ics: string): Set<string> {
       dtEndRaw = null;
       continue;
     }
+
     if (line.startsWith("END:VEVENT")) {
       if (inEvent && dtStartRaw) {
         const dtStart = parseIcsDateToUTC(dtStartRaw);
         let dtEnd = dtEndRaw ? parseIcsDateToUTC(dtEndRaw) : null;
 
         // Se manca DTEND → 1 giorno
-        if (dtStart && !dtEnd) {
-          dtEnd = addDaysUTC(dtStart, 1);
-        }
+        if (dtStart && !dtEnd) dtEnd = addDaysUTC(dtStart, 1);
 
         if (dtStart && dtEnd) {
-          for (const day of expandEventToClosedDates(dtStart, dtEnd)) {
-            closed.add(day);
-          }
+          for (const day of expandEventToClosedDates(dtStart, dtEnd)) closed.add(day);
         }
       }
       inEvent = false;
@@ -99,7 +115,6 @@ function parseClosedDatesFromIcs(ics: string): Set<string> {
       const val = line.split(":")[1]?.trim() ?? "";
       dtStartRaw = val || null;
     }
-
     if (line.startsWith("DTEND")) {
       const val = line.split(":")[1]?.trim() ?? "";
       dtEndRaw = val || null;
@@ -125,39 +140,48 @@ function rangeDatesInclusive(fromISO: string, toISO: string): string[] {
 }
 
 export async function GET(req: Request) {
-  // ✅ REGOLA: mai più ok:false
-  // se qualcosa va storto → ok:true closed:[]
+  // REGOLA: niente ok:false. Se errore → ok:true closed:[]
   try {
     const url = new URL(req.url);
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
 
     if (!from || !to) {
-      return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
+      return NextResponse.json(
+        { ok: true, closed: [], hint: "Use ?from=YYYY-MM-DD&to=YYYY-MM-DD" },
+        { status: 200, headers: { "Cache-Control": "no-store" } }
+      );
     }
 
-    // ✅ usa SOLO il file locale pubblico
-    const icsUrl = new URL("/gcal.ics", url.origin).toString();
+    // 1) Legge Google Calendar PUBLIC .ics (quello che hai testato e contiene 20260401)
+    let icsText = "";
+    const res = await fetch(GOOGLE_PUBLIC_ICS, {
+      cache: "no-store",
+      headers: { "User-Agent": "barca-app" },
+    });
 
-    const res = await fetch(icsUrl, { cache: "no-store" });
-    if (!res.ok) {
-      return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
+    if (res.ok) {
+      icsText = await res.text();
+    } else {
+      // 2) Fallback: prova il file locale se esiste (non rompe nulla)
+      const localUrl = new URL("/gcal.ics", url.origin).toString();
+      const res2 = await fetch(localUrl, { cache: "no-store" });
+      if (res2.ok) icsText = await res2.text();
     }
 
-    const ics = await res.text();
-    if (!ics.includes("BEGIN:VCALENDAR")) {
-      return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
+    if (!icsText || !icsText.includes("BEGIN:VCALENDAR")) {
+      return NextResponse.json({ ok: true, closed: [] }, { status: 200, headers: { "Cache-Control": "no-store" } });
     }
 
-    const closedSet = parseClosedDatesFromIcs(ics);
+    const closedSet = parseClosedDatesFromIcs(icsText);
     const days = rangeDatesInclusive(from, to);
     const closedInRange = days.filter((d) => closedSet.has(d));
 
     return NextResponse.json(
       { ok: true, closed: closedInRange },
-      { status: 200, headers: { "Cache-Control": "public, max-age=30" } }
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   } catch {
-    return NextResponse.json({ ok: true, closed: [] }, { status: 200 });
+    return NextResponse.json({ ok: true, closed: [] }, { status: 200, headers: { "Cache-Control": "no-store" } });
   }
 }
