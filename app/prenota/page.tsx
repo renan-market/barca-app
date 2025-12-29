@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type ExperienceId = "halfday" | "day" | "sunset" | "overnight" | "custom";
 type SeasonKey = "Bassa" | "Media" | "Alta";
@@ -228,7 +228,7 @@ function calcBasePrice(args: { season: SeasonKey; exp: ExperienceId; nights: num
   if (args.exp === "sunset") return p.sunset;
   if (args.exp === "halfday") return p.halfday;
 
-  // ✅ overnight: prezzo notte × notti (ORA FUNZIONA per Apr–Ott)
+  // ✅ overnight: prezzo notte × notti
   if (args.exp === "overnight") {
     return p.night * (args.nights || 0);
   }
@@ -243,6 +243,16 @@ function safeReadLang(): Lang {
     if (v === "it" || v === "en" || v === "es" || v === "fr" || v === "ru") return v;
   } catch {}
   return "it";
+}
+
+function addDaysISO(iso: string, days: number) {
+  const d = new Date(iso + "T00:00:00Z");
+  if (Number.isNaN(d.getTime())) return iso;
+  d.setUTCDate(d.getUTCDate() + days);
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 export default function Page() {
@@ -319,6 +329,8 @@ export default function Page() {
         language: "Lingua",
         payment: "Pagamento",
         time: "Orario",
+        closedDayMsg: "⚠️ Questa data è già occupata. Scegli un’altra data.",
+        closedRangeMsg: "⚠️ In questo periodo c’è almeno una data occupata. Cambia date Da/A.",
       },
       en: {
         title: "Booking request",
@@ -365,6 +377,8 @@ export default function Page() {
         language: "Language",
         payment: "Payment",
         time: "Time",
+        closedDayMsg: "⚠️ This date is already booked. Please choose another date.",
+        closedRangeMsg: "⚠️ There is at least one booked day in this range. Change From/To dates.",
       },
       es: {
         title: "Solicitud de reserva",
@@ -412,6 +426,8 @@ export default function Page() {
         language: "Idioma",
         payment: "Pago",
         time: "Horario",
+        closedDayMsg: "⚠️ Esta fecha ya está ocupada. Elige otra fecha.",
+        closedRangeMsg: "⚠️ Hay al menos un día ocupado en este rango. Cambia fechas Desde/Hasta.",
       },
       fr: {
         title: "Demande de réservation",
@@ -459,6 +475,8 @@ export default function Page() {
         language: "Langue",
         payment: "Paiement",
         time: "Horaire",
+        closedDayMsg: "⚠️ Cette date est déjà prise. Choisissez une autre date.",
+        closedRangeMsg: "⚠️ Au moins un jour est pris dans cette période. Changez les dates Du/Au.",
       },
       ru: {
         title: "Запрос на бронирование",
@@ -505,6 +523,8 @@ export default function Page() {
         language: "Язык",
         payment: "Оплата",
         time: "Время",
+        closedDayMsg: "⚠️ Эта дата уже занята. Выберите другую дату.",
+        closedRangeMsg: "⚠️ В этом диапазоне есть занятые дни. Измените даты С/По.",
       },
     };
     return (key: string) => dict[lang][key] ?? key;
@@ -522,6 +542,17 @@ export default function Page() {
     t2.setDate(t2.getDate() + 1);
     return toISODateInputValue(t2);
   });
+
+  // ✅ “ultima selezione valida” (per annullare date chiuse)
+  const [lastValidDate, setLastValidDate] = useState<string>(() => toISODateInputValue(today));
+  const [lastValidFrom, setLastValidFrom] = useState<string>(() => toISODateInputValue(today));
+  const [lastValidTo, setLastValidTo] = useState<string>(() => {
+    const t2 = new Date();
+    t2.setDate(t2.getDate() + 1);
+    return toISODateInputValue(t2);
+  });
+
+  const [datePickMsg, setDatePickMsg] = useState<string | null>(null);
 
   const [people, setPeople] = useState<number>(4);
   const [name, setName] = useState<string>("");
@@ -546,6 +577,7 @@ export default function Page() {
   function onSelectExperience(id: ExperienceId) {
     setSelected(id);
     if (isBaseExperience(id)) setLastBaseExperience(id);
+    setDatePickMsg(null);
   }
 
   const baseExpForCalc: ExperienceId = selected === "custom" ? lastBaseExperience : selected;
@@ -622,12 +654,11 @@ export default function Page() {
         fuelNote: null as string | null,
       };
     }
-    const fuelEst =
-      MANDATORY_WEEK.avgEngineHours * MANDATORY_WEEK.fuelPerHourPerEngine * MANDATORY_WEEK.engines; // 15h * 15 * 2 = 450
+    const fuelEst = MANDATORY_WEEK.avgEngineHours * MANDATORY_WEEK.fuelPerHourPerEngine * MANDATORY_WEEK.engines;
     return {
       skipper: MANDATORY_WEEK.skipper,
       cleaning: MANDATORY_WEEK.cleaning,
-      fuel: fuelEst, // solo stima per total
+      fuel: fuelEst,
       fuelNote: `Fuel: ${MANDATORY_WEEK.fuelPerHourPerEngine}€/h × ${MANDATORY_WEEK.engines} motori (stima media ${
         MANDATORY_WEEK.avgEngineHours
       }h ≈ ${formatEUR(fuelEst)})`,
@@ -644,6 +675,7 @@ export default function Page() {
   );
 
   function setFromSafe(v: string) {
+    setDatePickMsg(null);
     setDateFrom(v);
     if (dateTo && v && dateTo <= v) {
       const d = parseISODateOnly(v);
@@ -654,6 +686,7 @@ export default function Page() {
     }
   }
   function setToSafe(v: string) {
+    setDatePickMsg(null);
     if (dateFrom && v && v <= dateFrom) {
       const d = parseISODateOnly(dateFrom);
       if (d) {
@@ -665,33 +698,39 @@ export default function Page() {
     setDateTo(v);
   }
 
-  async function checkAvailability(fromISO: string, toISO: string) {
-    if (!fromISO || !toISO) return;
-    setCheckingAvailability(true);
-    setAvailabilityError(null);
+  // --- Availability helpers ---
+  async function fetchClosed(fromISO: string, toISO: string): Promise<{ ok: boolean; closed: string[]; error?: string }> {
     try {
       const r = await fetch(`/api/availability?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`, {
         cache: "no-store",
       });
       const data = (await r.json().catch(() => null)) as any;
-
       if (!data || data.ok !== true) {
-        setClosedDates([]);
-        setAvailabilityError(data?.error ? String(data.error) : "Errore verifica disponibilità");
-        return;
+        return { ok: false, closed: [], error: data?.error ? String(data.error) : "Errore verifica disponibilità" };
       }
-
       const closed = Array.isArray(data.closed) ? (data.closed as string[]) : [];
-      setClosedDates(closed);
-      setAvailabilityError(null);
+      return { ok: true, closed };
     } catch (e: any) {
-      setClosedDates([]);
-      setAvailabilityError(e?.message ? String(e.message) : "Errore verifica disponibilità");
-    } finally {
-      setCheckingAvailability(false);
+      return { ok: false, closed: [], error: e?.message ? String(e.message) : "Errore verifica disponibilità" };
     }
   }
 
+  async function checkAvailability(fromISO: string, toISO: string) {
+    if (!fromISO || !toISO) return;
+    setCheckingAvailability(true);
+    setAvailabilityError(null);
+    const res = await fetchClosed(fromISO, toISO);
+    if (!res.ok) {
+      setClosedDates([]);
+      setAvailabilityError(res.error ?? "Errore verifica disponibilità");
+    } else {
+      setClosedDates(res.closed);
+      setAvailabilityError(null);
+    }
+    setCheckingAvailability(false);
+  }
+
+  // Debounced check (range/day)
   useEffect(() => {
     const fromISO = usesOvernightDates ? dateFrom : date;
     const toISO = usesOvernightDates ? dateTo : date;
@@ -708,6 +747,70 @@ export default function Page() {
 
     return () => clearTimeout(tt);
   }, [usesOvernightDates, date, dateFrom, dateTo]);
+
+  // ✅ blocco “selezione date chiuse”
+  const lastFixRef = useRef<string>("");
+
+  useEffect(() => {
+    if (checkingAvailability) return;
+    if (availabilityError) return;
+
+    const hasClosedInSelection = closedDates.length > 0;
+    if (!hasClosedInSelection) {
+      // aggiorna “ultima selezione valida”
+      if (!usesOvernightDates) {
+        setLastValidDate(date);
+      } else {
+        if (dateFrom && dateTo && dateTo > dateFrom) {
+          setLastValidFrom(dateFrom);
+          setLastValidTo(dateTo);
+        }
+      }
+      setDatePickMsg(null);
+      return;
+    }
+
+    // Evita loop su stesso fix
+    const key = `${usesOvernightDates ? "R" : "D"}|${date}|${dateFrom}|${dateTo}|${closedDates.join(",")}`;
+    if (lastFixRef.current === key) return;
+    lastFixRef.current = key;
+
+    // Selezione non valida: ripristina l’ultima valida
+    if (!usesOvernightDates) {
+      setDatePickMsg(t("closedDayMsg"));
+      if (date !== lastValidDate) {
+        setDate(lastValidDate);
+      } else {
+        // caso raro: anche lastValid è chiusa → sposta di 1 giorno avanti (tentativo semplice)
+        const next = addDaysISO(date, 1);
+        setDate(next);
+      }
+    } else {
+      setDatePickMsg(t("closedRangeMsg"));
+      if (dateFrom !== lastValidFrom || dateTo !== lastValidTo) {
+        setDateFrom(lastValidFrom);
+        setDateTo(lastValidTo);
+      } else {
+        // caso raro: anche lastValid è “bloccata” → sposta di 1 giorno avanti
+        const nextFrom = addDaysISO(dateFrom, 1);
+        const nextTo = addDaysISO(dateTo, 1);
+        setDateFrom(nextFrom);
+        setDateTo(nextTo);
+      }
+    }
+  }, [
+    closedDates,
+    checkingAvailability,
+    availabilityError,
+    usesOvernightDates,
+    date,
+    dateFrom,
+    dateTo,
+    lastValidDate,
+    lastValidFrom,
+    lastValidTo,
+    t,
+  ]);
 
   const hasClosedInSelection = closedDates.length > 0;
   const waDisabled = checkingAvailability || !!availabilityError || hasClosedInSelection;
@@ -770,16 +873,13 @@ export default function Page() {
           MANDATORY_WEEK.avgEngineHours
         }h ≈ ${formatEUR(fuelEst)})`
       );
-      lines.push(`*Totale extra obbligatori stimato:* ${formatEUR(MANDATORY_WEEK.skipper + MANDATORY_WEEK.cleaning + fuelEst)}`);
+      lines.push(
+        `*Totale extra obbligatori stimato:* ${formatEUR(MANDATORY_WEEK.skipper + MANDATORY_WEEK.cleaning + fuelEst)}`
+      );
     }
 
     if (extrasTotal > 0) lines.push(`*Extra opzionali:* ${formatEUR(extrasTotal)}`);
     lines.push(`*Totale stimato:* ${formatEUR(totalEstimated)}`);
-
-    if (hasClosedInSelection) {
-      lines.push("");
-      lines.push(`⚠️ Nota: nel calendario risultano occupate queste date: ${closedDates.join(", ")}`);
-    }
 
     lines.push("");
     lines.push("Grazie! 🙏");
@@ -805,8 +905,6 @@ export default function Page() {
     extrasTotal,
     totalEstimated,
     priceLabel,
-    hasClosedInSelection,
-    closedDates,
     timeRange,
   ]);
 
@@ -995,6 +1093,12 @@ export default function Page() {
                 <p className="text-xs text-slate-800 mt-2">{t("datesInfo")}</p>
               </section>
 
+              {datePickMsg && (
+                <section className="rounded-2xl border border-red-200 bg-red-50 p-3">
+                  <p className="text-sm font-semibold text-red-700">{datePickMsg}</p>
+                </section>
+              )}
+
               {selected === "custom" && (
                 <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
                   <div className="flex items-center justify-between gap-3">
@@ -1109,7 +1213,10 @@ export default function Page() {
                       <input
                         type="date"
                         value={date}
-                        onChange={(e) => setDate(e.target.value)}
+                        onChange={(e) => {
+                          setDatePickMsg(null);
+                          setDate(e.target.value);
+                        }}
                         className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
                       />
                       <div className="mt-2 text-xs text-slate-900">
@@ -1308,7 +1415,9 @@ export default function Page() {
                         <div className="text-xs text-slate-800 mt-1">{priceLabel}</div>
 
                         <div className="text-xs text-slate-800 mt-1">Extra obbligatori: {formatEUR(mandatoryTotal)}</div>
-                        {extrasTotal > 0 && <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>}
+                        {extrasTotal > 0 && (
+                          <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>
+                        )}
 
                         <div className="text-xs text-slate-900 mt-1">
                           Totale stimato: <b>{formatEUR(totalEstimated)}</b>
@@ -1316,10 +1425,14 @@ export default function Page() {
                       </>
                     ) : (
                       <>
-                        <div className="text-lg font-extrabold">{basePrice !== null ? formatEUR(basePrice) : "Da definire"}</div>
+                        <div className="text-lg font-extrabold">
+                          {basePrice !== null ? formatEUR(basePrice) : "Da definire"}
+                        </div>
 
                         <div className="text-xs text-slate-800 mt-1">Extra obbligatori: {formatEUR(mandatoryTotal)}</div>
-                        {extrasTotal > 0 && <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>}
+                        {extrasTotal > 0 && (
+                          <div className="text-xs text-slate-800 mt-1">Extra opzionali: {formatEUR(extrasTotal)}</div>
+                        )}
 
                         <div className="text-xs text-slate-900 mt-1">
                           Totale stimato: <b>{formatEUR(totalEstimated)}</b>
