@@ -1,10 +1,34 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
 const PRICES = {
   day: 0, // TODO: metti prezzo DAY
   halfday: 0, // TODO: metti prezzo MEZZA GIORNATA
   sunset: 0, // TODO: metti prezzo SUNSET
   night: 0, // TODO: metti prezzo NOTTE (per pernottamento)
+};
+
+const TZ = "Europe/Madrid";
+
+// Orari definitivi (OPZIONE A)
+const SLOT = {
+  day: [10 * 60, 18 * 60] as const, // 10:00-18:00
+  halfAM: [10 * 60, 14 * 60] as const, // 10:00-14:00
+  halfPM: [14 * 60 + 30, 18 * 60 + 30] as const, // 14:30-18:30
+  sunset: [19 * 60, 21 * 60 + 30] as const, // 19:00-21:30
+};
+
+type Interval = [number, number]; // minuti [start,end)
+type BusyMap = Record<string, Interval[]>;
+
+type ApiResponse = {
+  ok: boolean;
+  tz?: string;
+  closed: string[];
+  busy: BusyMap;
+  v?: number;
 };
 
 function euro(n: number) {
@@ -16,37 +40,68 @@ function euro(n: number) {
   }).format(n);
 }
 
+function todayInTz(tz: string) {
+  // YYYY-MM-DD in timezone tz
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function overlaps(a: Interval, b: Interval) {
+  return a[0] < b[1] && b[0] < a[1];
+}
+
+function isSlotBlocked(
+  busy: readonly [number, number][],
+  slot: readonly [number, number]
+) {
+  return busy.some((it) => overlaps(it, slot));
+}
+
+
 type CardProps = {
   title: string;
   subtitle: string;
   price: string;
+  disabled?: boolean;
+  warningText?: string;
+  extraLines?: React.ReactNode;
 };
 
-function ExperienceCard({ title, subtitle, price }: CardProps) {
+function ExperienceCard({
+  title,
+  subtitle,
+  price,
+  disabled,
+  warningText,
+  extraLines,
+}: CardProps) {
   return (
     <div
       className={[
         "group block rounded-2xl border border-gray-300 bg-white",
         "p-5 sm:p-6",
         "shadow-[0_10px_28px_rgba(0,0,0,0.08)]",
-        "hover:shadow-[0_14px_34px_rgba(0,0,0,0.12)]",
-        "active:scale-[0.99] transition",
+        disabled
+          ? "opacity-60 cursor-not-allowed"
+          : "hover:shadow-[0_14px_34px_rgba(0,0,0,0.12)] active:scale-[0.99]",
+        "transition",
       ].join(" ")}
+      aria-disabled={disabled ? true : undefined}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          {/* Titolo: molto leggibile su mobile */}
           <h2 className="text-xl sm:text-lg font-extrabold text-black leading-tight">
             {title}
           </h2>
-
-          {/* Sottotitolo: niente più grigio slavato */}
           <p className="mt-1 text-base sm:text-sm font-semibold text-gray-900/90 leading-snug">
             {subtitle}
           </p>
         </div>
 
-        {/* Prezzo: forte e chiaro */}
         <div className="shrink-0 text-right">
           <div className="text-xs font-bold text-gray-700">Da</div>
           <div className="text-lg sm:text-base font-extrabold text-black">
@@ -55,19 +110,94 @@ function ExperienceCard({ title, subtitle, price }: CardProps) {
         </div>
       </div>
 
-      {/* Piccola riga di “call to action” */}
       <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-sm font-bold text-gray-900">
         Prenota / Richiedi su WhatsApp <span aria-hidden>›</span>
       </div>
+
+      {extraLines ? <div className="mt-3">{extraLines}</div> : null}
+
+      {disabled && warningText ? (
+        <div className="mt-3 text-sm font-extrabold text-gray-900">
+          {warningText}
+        </div>
+      ) : null}
     </div>
   );
 }
 
+function Pill({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span
+      className={[
+        "inline-flex items-center rounded-full px-3 py-1 text-sm font-bold",
+        ok ? "bg-gray-100 text-gray-900" : "bg-gray-200 text-gray-700",
+      ].join(" ")}
+    >
+      {ok ? "✅" : "❌"} {label}
+    </span>
+  );
+}
+
 export default function Page() {
+  const [selectedDate, setSelectedDate] = useState<string>(() => todayInTz(TZ));
+  const [api, setApi] = useState<ApiResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/availability?from=${selectedDate}&to=${selectedDate}`,
+          { cache: "no-store" }
+        );
+        const data = (await res.json()) as ApiResponse;
+        if (alive) setApi(data);
+      } catch {
+        if (alive) setApi({ ok: true, closed: [], busy: {} });
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [selectedDate]);
+
+  const { closedSet, intervals } = useMemo(() => {
+  const closedSet = new Set(api?.closed ?? []);
+  const intervals = (api?.busy?.[selectedDate] ?? []) as Interval[];
+  return { closedSet, intervals };
+}, [api, selectedDate]);
+
+
+  const isClosedAllDay = useMemo(
+  () => closedSet.has(selectedDate),
+  [closedSet, selectedDate]
+);
+
+  // Blocchi per fasce (OPZIONE A)
+  const dayBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.day);
+const halfAMBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.halfAM);
+const halfPMBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.halfPM);
+const sunsetBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.sunset);
+
+
+  // Mezza giornata (card generica): la rendiamo NON disponibile solo se entrambe le mezze giornate sono bloccate.
+  const halfdayBlocked = isClosedAllDay || (halfAMBlocked && halfPMBlocked);
+
+  // Pernottamento: blocchiamo solo se il giorno è full-day (evento TUTTO IL GIORNO).
+  const nightBlocked = isClosedAllDay;
+
+  const warning = "Non disponibile per questa attività";
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-gray-50 text-gray-900 px-5 py-10">
       <div className="max-w-3xl mx-auto text-center">
-        {/* Header più leggibile su mobile */}
         <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-black">
           Lagoon 380 · Ibiza
         </h1>
@@ -75,48 +205,134 @@ export default function Page() {
           Esperienze private in catamarano
         </p>
 
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
-          <Link href="/prenota" className="block">
-            <ExperienceCard
-              title="Day Charter"
-              subtitle="10:00 – 18:00 (senza notte)"
-              price={euro(PRICES.day)}
-            />
-          </Link>
+        {/* ✅ Selettore Data (grafica coerente) */}
+        <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_10px_26px_rgba(0,0,0,0.06)] text-left">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-base font-extrabold text-gray-900">Seleziona data</p>
+              <p className="text-sm font-medium text-gray-700">
+                La disponibilità qui sotto si aggiorna in base al tuo Google Calendar.
+              </p>
+            </div>
 
-          <Link href="/prenota" className="block">
-            <ExperienceCard
-              title="Mezza giornata"
-              subtitle="4 ore (senza notte)"
-              price={euro(PRICES.halfday)}
-            />
-          </Link>
+            <div className="flex items-center gap-3">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-full sm:w-auto rounded-xl border border-gray-300 bg-white px-4 py-2 text-base font-bold text-gray-900 shadow-sm"
+              />
+              <div className="text-sm font-bold text-gray-700">
+                {loading ? "Carico…" : "✓"}
+              </div>
+            </div>
+          </div>
 
-          <Link href="/prenota" className="block">
-            <ExperienceCard
-              title="Sunset"
-              subtitle="Tramonto (senza notte)"
-              price={euro(PRICES.sunset)}
-            />
-          </Link>
-
-          <Link href="/prenota" className="block">
-            <ExperienceCard
-              title="Pernottamento"
-              subtitle="Multi-day (Date Da / A)"
-              price={`${euro(PRICES.night)}/notte`}
-            />
-          </Link>
+          {/* mini riassunto */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Pill ok={!dayBlocked} label="Day 10–18" />
+            <Pill ok={!halfAMBlocked} label="Half Mattina 10–14" />
+            <Pill ok={!halfPMBlocked} label="Half Pomeriggio 14:30–18:30" />
+            <Pill ok={!sunsetBlocked} label="Sunset 19–21:30" />
+          </div>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_10px_26px_rgba(0,0,0,0.06)]">
-          <p className="text-base font-semibold text-gray-900">
-            Richiesta su WhatsApp
-          </p>
-          <p className="mt-1 text-sm font-medium text-gray-700">
-            Non è una prenotazione automatica: verifichiamo disponibilità e ti
-            rispondiamo.
-          </p>
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
+          {/* Day */}
+          {dayBlocked ? (
+            <div className="block">
+              <ExperienceCard
+                title="Day Charter"
+                subtitle="10:00 – 18:00 (senza notte)"
+                price={euro(PRICES.day)}
+                disabled
+                warningText={warning}
+              />
+            </div>
+          ) : (
+            <Link href="/prenota" className="block">
+              <ExperienceCard
+                title="Day Charter"
+                subtitle="10:00 – 18:00 (senza notte)"
+                price={euro(PRICES.day)}
+              />
+            </Link>
+          )}
+
+          {/* Halfday (card generica) */}
+          {halfdayBlocked ? (
+            <div className="block">
+              <ExperienceCard
+                title="Mezza giornata"
+                subtitle="Scegli Mattina o Pomeriggio"
+                price={euro(PRICES.halfday)}
+                disabled
+                warningText={warning}
+                extraLines={
+                  <div className="flex flex-wrap gap-2">
+                    <Pill ok={!halfAMBlocked} label="Mattina 10–14" />
+                    <Pill ok={!halfPMBlocked} label="Pomeriggio 14:30–18:30" />
+                  </div>
+                }
+              />
+            </div>
+          ) : (
+            <Link href="/prenota" className="block">
+              <ExperienceCard
+                title="Mezza giornata"
+                subtitle="Scegli Mattina o Pomeriggio"
+                price={euro(PRICES.halfday)}
+                extraLines={
+                  <div className="flex flex-wrap gap-2">
+                    <Pill ok={!halfAMBlocked} label="Mattina 10–14" />
+                    <Pill ok={!halfPMBlocked} label="Pomeriggio 14:30–18:30" />
+                  </div>
+                }
+              />
+            </Link>
+          )}
+
+          {/* Sunset */}
+          {sunsetBlocked ? (
+            <div className="block">
+              <ExperienceCard
+                title="Sunset"
+                subtitle="19:00 – 21:30 (senza notte)"
+                price={euro(PRICES.sunset)}
+                disabled
+                warningText={warning}
+              />
+            </div>
+          ) : (
+            <Link href="/prenota" className="block">
+              <ExperienceCard
+                title="Sunset"
+                subtitle="19:00 – 21:30 (senza notte)"
+                price={euro(PRICES.sunset)}
+              />
+            </Link>
+          )}
+
+          {/* Pernottamento */}
+          {nightBlocked ? (
+            <div className="block">
+              <ExperienceCard
+                title="Pernottamento"
+                subtitle="Multi-day (Date Da / A)"
+                price={`${euro(PRICES.night)}/notte`}
+                disabled
+                warningText={warning}
+              />
+            </div>
+          ) : (
+            <Link href="/prenota" className="block">
+              <ExperienceCard
+                title="Pernottamento"
+                subtitle="Multi-day (Date Da / A)"
+                price={`${euro(PRICES.night)}/notte`}
+              />
+            </Link>
+          )}
         </div>
       </div>
     </main>

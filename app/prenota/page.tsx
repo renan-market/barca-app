@@ -13,6 +13,9 @@ type Experience = {
   durationLabel: string;
 };
 
+type Interval = [number, number]; // minuti [start, end)
+type BusyMap = Record<string, Interval[]>;
+
 const WHATSAPP_NUMBER = "393398864884"; // senza + e senza spazi (formato wa.me)
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/3cI5kE2es0gm79zb6Ibsc02";
 
@@ -22,6 +25,20 @@ const FEE_CLEANING = 50;
 const FEE_FUEL_DAY = 40; // solo Day / Mezza / Sunset
 const OVERNIGHT_FUEL_NOTE = "Carburante escluso: 15€/ora";
 
+// ✅ Orari definitivi (minuti)
+const MIN_10_00 = 10 * 60;
+const MIN_14_00 = 14 * 60;
+const MIN_14_30 = 14 * 60 + 30;
+const MIN_18_00 = 18 * 60;
+const MIN_18_30 = 18 * 60 + 30;
+const MIN_19_00 = 19 * 60;
+const MIN_21_30 = 21 * 60 + 30;
+
+const SLOT_DAY: Interval = [MIN_10_00, MIN_18_00];
+const SLOT_HALF_AM: Interval = [MIN_10_00, MIN_14_00];
+const SLOT_HALF_PM: Interval = [MIN_14_30, MIN_18_30];
+const SLOT_SUNSET: Interval = [MIN_19_00, MIN_21_30];
+
 // ✅ Lingue
 type Lang = "it" | "en" | "es" | "fr" | "ru";
 const LANG_OPTIONS: { id: Lang; label: string }[] = [
@@ -29,7 +46,7 @@ const LANG_OPTIONS: { id: Lang; label: string }[] = [
   { id: "en", label: "EN" },
   { id: "es", label: "ES" },
   { id: "fr", label: "FR" },
-  { id: "ru", label: "RU" }, // ✅ RUSSO
+  { id: "ru", label: "RU" },
 ];
 
 const BOAT = {
@@ -38,6 +55,7 @@ const BOAT = {
 };
 
 // ✅ FOTO LOCALI (public/...)
+// (se non le hai tutte, non cambia niente: lascia così)
 const BOAT_IMAGES = [
   "/boats/lagoon380/01.jpg",
   "/boats/lagoon380/02.jpg",
@@ -47,11 +65,11 @@ const BOAT_IMAGES = [
   "/boats/lagoon380/06.jpg",
 ];
 
-// ✅ Esperienze (NO WEEKLY)
+// ✅ Esperienze
 const EXPERIENCES: Experience[] = [
-  { id: "day", title: "Day Charter", subtitle: "Giornata intera in mare", durationLabel: "8 ore" },
+  { id: "day", title: "Day Charter", subtitle: "Giornata intera in mare", durationLabel: "10:00–18:00" },
   { id: "halfday", title: "Mezza giornata", subtitle: "Mattina o pomeriggio in mare", durationLabel: "4 ore" },
-  { id: "sunset", title: "Sunset", subtitle: "Tramonto + aperitivo", durationLabel: "3 ore" },
+  { id: "sunset", title: "Sunset", subtitle: "Tramonto + aperitivo", durationLabel: "19:00–21:30" },
   { id: "overnight", title: "Pernottamento", subtitle: "Multi-day (con notti)", durationLabel: "Da/A" },
   { id: "custom", title: "Personalizzata", subtitle: "Extra + richiesta su misura", durationLabel: "variabile" },
 ];
@@ -63,67 +81,24 @@ const PRICES: Record<SeasonKey, { day: number; halfday: number; sunset: number; 
   Alta: { day: 1100, halfday: 780, sunset: 650, night: 1430 },
 };
 
-// ✅ APRILE = EXTRA-BASSA (AUTO) — prezzi separati
+// ✅ APRILE = EXTRA-BASSA (AUTO)
 const APRIL_PRICES = { day: 380, halfday: 280, sunset: 260, night: 500 } as const;
 
-// ✅ BASSA (Maggio + Ottobre) — prezzi ricalcolati dal Day 460
+// ✅ BASSA (Maggio + Ottobre)
 const MAY_OCT_PRICES = { day: 460, halfday: 320, sunset: 290, night: 575 } as const;
 
-// ✅ GIUGNO / LUGLIO / AGOSTO (mese-specifici)
+// ✅ GIUGNO / LUGLIO / AGOSTO
 const JUNE_PRICES = { day: 600, halfday: 420, sunset: 370, night: 780 } as const;
 const JULY_PRICES = { day: 700, halfday: 500, sunset: 410, night: 910 } as const;
 const AUGUST_PRICES = { day: 800, halfday: 570, sunset: 470, night: 1040 } as const;
 
-// ✅ EXTRA (transfer tolto) — ✅ PULIZIA FINALE RIMOSSA
+// ✅ EXTRA
 const EXTRA = {
   seabob: 650,
   drinksPremium: 150,
   cateringPerPerson: 25,
   gopro: 80,
 } as const;
-
-/**
- * ✅ FIX STAGIONI (Regola desiderata)
- * - Alta: Luglio + Agosto
- * - Media: Giugno + Settembre
- * - Bassa: Aprile + Maggio + Ottobre + resto (Nov–Mar)
- *
- * Inoltre: safe fallback per evitare errori runtime (500)
- */
-function getSeasonFromDate(d: Date | null | undefined): SeasonKey {
-  if (!d || Number.isNaN(d.getTime())) return "Bassa";
-  const month = d.getMonth(); // 0-11
-  if (month === 6 || month === 7) return "Alta"; // Luglio, Agosto
-  if (month === 5 || month === 8) return "Media"; // Giugno, Settembre
-  return "Bassa";
-}
-
-// ✅ APRILE check (mese 3 = aprile)
-function isApril(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 3;
-}
-
-// ✅ MAGGIO o OTTOBRE (mese 4 = maggio, mese 9 = ottobre)
-function isMayOrOctober(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  const m = d.getMonth();
-  return m === 4 || m === 9;
-}
-
-// ✅ GIUGNO / LUGLIO / AGOSTO
-function isJune(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 5;
-}
-function isJuly(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 6;
-}
-function isAugust(d: Date | null | undefined) {
-  if (!d || Number.isNaN(d.getTime())) return false;
-  return d.getMonth() === 7;
-}
 
 function formatEUR(value: number) {
   return new Intl.NumberFormat("it-IT", {
@@ -147,51 +122,69 @@ function parseISODateOnly(v: string) {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
-function nightsBetween(fromISO: string, toISO: string) {
-  const from = new Date(fromISO + "T00:00:00");
-  const to = new Date(toISO + "T00:00:00");
-  const ms = to.getTime() - from.getTime();
-  const n = Math.floor(ms / (1000 * 60 * 60 * 24));
-  return Number.isFinite(n) ? n : 0;
-}
-
 function isBaseExperience(id: ExperienceId) {
   return id === "day" || id === "halfday" || id === "sunset" || id === "overnight";
 }
 
+/**
+ * ✅ FIX STAGIONI
+ * - Alta: Luglio + Agosto
+ * - Media: Giugno + Settembre
+ * - Bassa: Aprile + Maggio + Ottobre + resto
+ */
+function getSeasonFromDate(d: Date | null | undefined): SeasonKey {
+  if (!d || Number.isNaN(d.getTime())) return "Bassa";
+  const month = d.getMonth(); // 0-11
+  if (month === 6 || month === 7) return "Alta"; // Luglio, Agosto
+  if (month === 5 || month === 8) return "Media"; // Giugno, Settembre
+  return "Bassa";
+}
+function isApril(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getMonth() === 3;
+}
+function isMayOrOctober(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  const m = d.getMonth();
+  return m === 4 || m === 9;
+}
+function isJune(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getMonth() === 5;
+}
+function isJuly(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getMonth() === 6;
+}
+function isAugust(d: Date | null | undefined) {
+  if (!d || Number.isNaN(d.getTime())) return false;
+  return d.getMonth() === 7;
+}
+
 // ✅ prezzi mese-specifici: Aprile → Mag/Ott → Giugno → Luglio → Agosto → default stagione
 function getEffectivePrices(args: { season: SeasonKey; auto: boolean; baseDate: Date | null }) {
-  // Aprile solo in AUTO (extra-bassa)
   if (args.auto && isApril(args.baseDate)) return APRIL_PRICES;
-
-  // Maggio/Ottobre: Bassa, in base alla data (AUTO + MANUALE)
   if (args.season === "Bassa" && isMayOrOctober(args.baseDate)) return MAY_OCT_PRICES;
-
-  // Giugno/Luglio/Agosto: mese-specifici (AUTO + MANUALE), in base alla data
   if (isJune(args.baseDate)) return JUNE_PRICES;
   if (isJuly(args.baseDate)) return JULY_PRICES;
   if (isAugust(args.baseDate)) return AUGUST_PRICES;
-
   return PRICES[args.season];
 }
-// ✅ Pernottamento: prezzo fisso SETTIMANA (7 notti) in base al mese della data di inizio
-const OVERNIGHT_WEEKLY: Record<
-  "apr" | "may" | "jun" | "jul" | "aug" | "sep" | "oct",
-  number
-> = {
+
+// ✅ Pernottamento: prezzo settimana (fallback)
+const OVERNIGHT_WEEKLY: Record<"apr" | "may" | "jun" | "jul" | "aug" | "sep" | "oct", number> = {
   apr: 4500,
   may: 5000,
   jun: 5500,
   jul: 6500,
   aug: 7500,
   sep: 6000,
-  oct: 4500, // come Aprile
+  oct: 4500,
 };
 
 function getOvernightWeeklyPrice(baseDate: Date | null): number | null {
   if (!baseDate) return null;
-
-  const m = baseDate.getMonth() + 1; // 1-12
+  const m = baseDate.getMonth() + 1;
   if (m === 4) return OVERNIGHT_WEEKLY.apr;
   if (m === 5) return OVERNIGHT_WEEKLY.may;
   if (m === 6) return OVERNIGHT_WEEKLY.jun;
@@ -199,9 +192,6 @@ function getOvernightWeeklyPrice(baseDate: Date | null): number | null {
   if (m === 8) return OVERNIGHT_WEEKLY.aug;
   if (m === 9) return OVERNIGHT_WEEKLY.sep;
   if (m === 10) return OVERNIGHT_WEEKLY.oct;
-
-  // Fuori dai mesi definiti → fallback: usa la stagione (Bassa/Media/Alta) come "prezzo settimana" stimato
-  // (Se vuoi, qui possiamo mettere null e mostrare errore)
   return null;
 }
 
@@ -216,11 +206,10 @@ function calcBasePrice(args: {
   if (args.exp === "day") return p.day;
   if (args.exp === "sunset") return p.sunset;
   if (args.exp === "halfday") return p.halfday;
- if (args.exp === "overnight") {
-  const weekly = getOvernightWeeklyPrice(args.baseDate);
-  return weekly ?? null;
-}
-
+  if (args.exp === "overnight") {
+    const weekly = getOvernightWeeklyPrice(args.baseDate);
+    return weekly ?? null;
+  }
   return null;
 }
 
@@ -232,8 +221,36 @@ function safeReadLang(): Lang {
   } catch {}
   return "it";
 }
-// ✅ FIX iPhone Dark Mode: forza gli input (date/number) in stile chiaro
-const IOS_LIGHT_INPUT_STYLE: React.CSSProperties = { colorScheme: "light" };
+
+// =========================
+// ✅ Availability helpers
+// =========================
+function overlaps(a: Interval, b: Interval) {
+  return a[0] < b[1] && b[0] < a[1];
+}
+function dayHasAnyBusy(busy: BusyMap, dayISO: string) {
+  return Array.isArray(busy[dayISO]) && busy[dayISO].length > 0;
+}
+function allIntervalsEndBefore(busy: BusyMap, dayISO: string, minute: number) {
+  const list = busy[dayISO] || [];
+  return list.every((iv) => iv[1] <= minute);
+}
+function slotBlockedByBusy(busy: BusyMap, dayISO: string, slot: Interval) {
+  const list = busy[dayISO] || [];
+  return list.some((iv) => overlaps(iv, slot));
+}
+function rangeDaysInclusive(fromISO: string, toISO: string) {
+  if (!fromISO || !toISO) return [];
+  if (toISO < fromISO) return [];
+  const from = new Date(fromISO + "T00:00:00");
+  const to = new Date(toISO + "T00:00:00");
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];
+  const out: string[] = [];
+  for (let d = new Date(from); d.getTime() <= to.getTime(); d.setDate(d.getDate() + 1)) {
+    out.push(toISODateInputValue(d));
+  }
+  return out;
+}
 
 export default function Page() {
   const today = useMemo(() => new Date(), []);
@@ -245,15 +262,12 @@ export default function Page() {
   useEffect(() => {
     setLang(safeReadLang());
   }, []);
-
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem("bh_lang", lang);
     } catch {}
   }, [lang]);
-
-  // ✅ chiudi menu lingua quando tocchi fuori (iPhone)
   useEffect(() => {
     if (!langOpen) return;
     const onDown = () => setLangOpen(false);
@@ -274,7 +288,7 @@ export default function Page() {
         notAvailable: "Non disponibile",
         error: "Errore",
         available: "Disponibile",
-        datesInfo: "Le date vengono controllate dal calendario. Se una data è occupata, la richiesta viene bloccata.",
+        datesInfo: "Disponibilità calcolata dal calendario (Google Calendar).",
         extrasTitle: "Extra (opzionali)",
         extrasSubtitle: "Seleziona e vedi il totale",
         extrasTotal: "Totale extra",
@@ -302,11 +316,13 @@ export default function Page() {
         notIncluded: "Non incluso: carburante e cambusa.",
         waSend: "Invia su WhatsApp",
         waChecking: "Controllo disponibilità...",
-        waClosed: "Date non disponibili",
+        waClosed: "Non disponibile",
         waError: "Errore disponibilità",
         waReply: "Ti rispondiamo su WhatsApp appena verifichiamo la disponibilità.",
         language: "Lingua",
         payment: "Pagamento",
+        halfAM: "Mattina (10:00–14:00)",
+        halfPM: "Pomeriggio (14:30–18:30)",
       },
       en: {
         title: "Booking request",
@@ -318,7 +334,7 @@ export default function Page() {
         notAvailable: "Not available",
         error: "Error",
         available: "Available",
-        datesInfo: "Dates are checked from the calendar. If a date is busy, the request is blocked.",
+        datesInfo: "Availability calculated from the calendar (Google Calendar).",
         extrasTitle: "Extras (optional)",
         extrasSubtitle: "Select and see the total",
         extrasTotal: "Extras total",
@@ -345,11 +361,13 @@ export default function Page() {
         notIncluded: "Not included: fuel and provisions.",
         waSend: "Send on WhatsApp",
         waChecking: "Checking availability...",
-        waClosed: "Dates not available",
+        waClosed: "Not available",
         waError: "Availability error",
         waReply: "We reply on WhatsApp as soon as we verify availability.",
         language: "Language",
         payment: "Payment",
+        halfAM: "Morning (10:00–14:00)",
+        halfPM: "Afternoon (14:30–18:30)",
       },
       es: {
         title: "Solicitud de reserva",
@@ -362,8 +380,7 @@ export default function Page() {
         notAvailable: "No disponible",
         error: "Error",
         available: "Disponible",
-        datesInfo:
-          "Las fechas se verifican en el calendario. Si una fecha está ocupada, se bloquea la solicitud.",
+        datesInfo: "Disponibilidad calculada por el calendario (Google Calendar).",
         extrasTitle: "Extras (opcional)",
         extrasSubtitle: "Selecciona y mira el total",
         extrasTotal: "Total extras",
@@ -390,11 +407,13 @@ export default function Page() {
         notIncluded: "No incluye: combustible y provisiones.",
         waSend: "Enviar por WhatsApp",
         waChecking: "Comprobando disponibilidad...",
-        waClosed: "Fechas no disponibles",
+        waClosed: "No disponible",
         waError: "Error de disponibilidad",
         waReply: "Respondemos por WhatsApp cuando confirmemos disponibilidad.",
         language: "Idioma",
         payment: "Pago",
+        halfAM: "Mañana (10:00–14:00)",
+        halfPM: "Tarde (14:30–18:30)",
       },
       fr: {
         title: "Demande de réservation",
@@ -407,8 +426,7 @@ export default function Page() {
         notAvailable: "Indisponible",
         error: "Erreur",
         available: "Disponible",
-        datesInfo:
-          "Les dates sont vérifiées via le calendrier. Si une date est prise, la demande est bloquée.",
+        datesInfo: "Disponibilité calculée via le calendrier (Google Calendar).",
         extrasTitle: "Extras (optionnels)",
         extrasSubtitle: "Sélectionne et vois le total",
         extrasTotal: "Total extras",
@@ -435,11 +453,13 @@ export default function Page() {
         notIncluded: "Non inclus : carburant et provisions.",
         waSend: "Envoyer sur WhatsApp",
         waChecking: "Vérification disponibilité...",
-        waClosed: "Dates indisponibles",
+        waClosed: "Indisponible",
         waError: "Erreur disponibilité",
         waReply: "Nous répondons sur WhatsApp dès que la disponibilité est vérifiée.",
         language: "Langue",
         payment: "Paiement",
+        halfAM: "Matin (10:00–14:00)",
+        halfPM: "Après-midi (14:30–18:30)",
       },
       ru: {
         title: "Запрос на бронирование",
@@ -451,7 +471,7 @@ export default function Page() {
         notAvailable: "Недоступно",
         error: "Ошибка",
         available: "Доступно",
-        datesInfo: "Даты проверяются по календарю. Если дата занята, запрос блокируется.",
+        datesInfo: "Доступность рассчитывается по календарю (Google Calendar).",
         extrasTitle: "Дополнительно (опционально)",
         extrasSubtitle: "Выберите и посмотрите итог",
         extrasTotal: "Итого доп.",
@@ -478,11 +498,13 @@ export default function Page() {
         notIncluded: "Не включено: топливо и провизия.",
         waSend: "WhatsApp",
         waChecking: "Проверяем доступность...",
-        waClosed: "Даты заняты",
+        waClosed: "Недоступно",
         waError: "Ошибка доступности",
         waReply: "Ответим в WhatsApp после проверки.",
         language: "Язык",
         payment: "Оплата",
+        halfAM: "Утро (10:00–14:00)",
+        halfPM: "День (14:30–18:30)",
       },
     };
     return (key: string) => dict[lang][key] ?? key;
@@ -490,6 +512,7 @@ export default function Page() {
 
   const [selected, setSelected] = useState<ExperienceId>("day");
   const [lastBaseExperience, setLastBaseExperience] = useState<Exclude<ExperienceId, "custom">>("day");
+  const [halfdaySlot, setHalfdaySlot] = useState<HalfDaySlot>("Mattina");
 
   const [imgIndex, setImgIndex] = useState(0);
 
@@ -505,8 +528,6 @@ export default function Page() {
   const [name, setName] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
-  const [halfdaySlot, setHalfdaySlot] = useState<HalfDaySlot>("Mattina");
-
   const [extraSeabob, setExtraSeabob] = useState(false);
   const [extraDrinks, setExtraDrinks] = useState(false);
   const [extraCatering, setExtraCatering] = useState(false);
@@ -515,7 +536,9 @@ export default function Page() {
   const [seasonMode, setSeasonMode] = useState<"auto" | "manual">("auto");
   const [manualSeason, setManualSeason] = useState<SeasonKey>("Media");
 
+  // ✅ Calendario dati
   const [closedDates, setClosedDates] = useState<string[]>([]);
+  const [busyMap, setBusyMap] = useState<BusyMap>({});
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [checkingAvailability, setCheckingAvailability] = useState<boolean>(false);
 
@@ -537,7 +560,6 @@ export default function Page() {
   const autoSeason = useMemo<SeasonKey>(() => getSeasonFromDate(seasonBaseDate ?? new Date()), [seasonBaseDate]);
   const season: SeasonKey = seasonMode === "auto" ? autoSeason : manualSeason;
 
-  // ✅ etichetta visibile: se aprile e auto, mostra "Aprile"
   const seasonLabel = useMemo(() => {
     if (seasonMode === "auto" && isApril(seasonBaseDate)) return "Aprile";
     return season;
@@ -546,8 +568,12 @@ export default function Page() {
   const nights = useMemo(() => {
     if (!usesOvernightDates) return 0;
     if (!dateFrom || !dateTo) return 0;
-    const n = nightsBetween(dateFrom, dateTo);
-    return n > 0 ? n : 0;
+    // semplice: numero notti = differenza giorni (ma qui la UI mostra solo)
+    const from = new Date(dateFrom + "T00:00:00");
+    const to = new Date(dateTo + "T00:00:00");
+    const ms = to.getTime() - from.getTime();
+    const n = Math.floor(ms / (1000 * 60 * 60 * 24));
+    return Number.isFinite(n) && n > 0 ? n : 0;
   }, [usesOvernightDates, dateFrom, dateTo]);
 
   const basePrice = useMemo(
@@ -562,16 +588,6 @@ export default function Page() {
     [season, baseExpForCalc, nights, seasonMode, seasonBaseDate]
   );
 
-  const priceLabel = useMemo(() => {
-    const effective = getEffectivePrices({ season, auto: seasonMode === "auto", baseDate: seasonBaseDate });
-    if (baseExpForCalc === "overnight") {
-      const perNight = effective.night;
-      if (!nights) return `${formatEUR(perNight)} / notte`;
-      return `${formatEUR(perNight)} × ${nights} notti`;
-    }
-    return basePrice !== null ? formatEUR(basePrice) : "Da definire";
-  }, [season, nights, baseExpForCalc, basePrice, seasonMode, seasonBaseDate]);
-
   const extrasTotal = useMemo(() => {
     const catering = extraCatering ? EXTRA.cateringPerPerson * people : 0;
     return (
@@ -582,22 +598,14 @@ export default function Page() {
     );
   }, [extraSeabob, extraDrinks, extraCatering, extraGopro, people]);
 
-  // ✅ EXTRA FISSI OBBLIGATORI (somma automatica al totale)
-const includeFuelFixed = baseExpForCalc !== "overnight";
-
-const fixedExtrasTotal = useMemo(() => {
-  const fuel = includeFuelFixed ? FEE_FUEL_DAY : 0;
-
-  // Skipper: per overnight moltiplica per notti, per le altre esperienze 1 volta
-  const skipper = baseExpForCalc === "overnight" ? FEE_SKIPPER * (nights || 0) : FEE_SKIPPER;
-
-  return skipper + FEE_CLEANING + fuel;
-}, [includeFuelFixed, baseExpForCalc, nights]);
-
+  const includeFuelFixed = baseExpForCalc !== "overnight";
+  const fixedExtrasTotal = useMemo(() => {
+    const fuel = includeFuelFixed ? FEE_FUEL_DAY : 0;
+    const skipper = baseExpForCalc === "overnight" ? FEE_SKIPPER * (nights || 0) : FEE_SKIPPER;
+    return skipper + FEE_CLEANING + fuel;
+  }, [includeFuelFixed, baseExpForCalc, nights]);
 
   const totalEstimated = useMemo(() => (basePrice ?? 0) + extrasTotal, [basePrice, extrasTotal]);
-
-  // ✅ Totale finale: base + extra opzionali + extra fissi
   const grandTotalEstimated = useMemo(() => totalEstimated + fixedExtrasTotal, [totalEstimated, fixedExtrasTotal]);
 
   function setFromSafe(v: string) {
@@ -622,10 +630,14 @@ const fixedExtrasTotal = useMemo(() => {
     setDateTo(v);
   }
 
+  // =========================
+  // ✅ Fetch calendar availability (closed + busy)
+  // =========================
   async function checkAvailability(fromISO: string, toISO: string) {
     if (!fromISO || !toISO) return;
     setCheckingAvailability(true);
     setAvailabilityError(null);
+
     try {
       const r = await fetch(`/api/availability?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`, {
         cache: "no-store",
@@ -634,28 +646,34 @@ const fixedExtrasTotal = useMemo(() => {
 
       if (!data || data.ok !== true) {
         setClosedDates([]);
+        setBusyMap({});
         setAvailabilityError(data?.error ? String(data.error) : "Errore verifica disponibilità");
         return;
       }
 
       const closed = Array.isArray(data.closed) ? (data.closed as string[]) : [];
+      const busy = (data.busy && typeof data.busy === "object" ? (data.busy as BusyMap) : {}) as BusyMap;
 
       setClosedDates(closed);
+      setBusyMap(busy);
       setAvailabilityError(null);
     } catch (e: any) {
       setClosedDates([]);
+      setBusyMap({});
       setAvailabilityError(e?.message ? String(e.message) : "Errore verifica disponibilità");
     } finally {
       setCheckingAvailability(false);
     }
   }
 
+  // per le esperienze giornaliere basta 1 giorno; per pernottamento serve range
   useEffect(() => {
     const fromISO = usesOvernightDates ? dateFrom : date;
     const toISO = usesOvernightDates ? dateTo : date;
 
     if (usesOvernightDates && (!dateFrom || !dateTo || dateTo <= dateFrom)) {
       setClosedDates([]);
+      setBusyMap({});
       setAvailabilityError(null);
       return;
     }
@@ -667,45 +685,136 @@ const fixedExtrasTotal = useMemo(() => {
     return () => clearTimeout(tt);
   }, [usesOvernightDates, date, dateFrom, dateTo]);
 
-  const hasClosedInSelection = closedDates.length > 0;
-    // ✅ Utils: date chiuse → Set per lookup veloce
   const closedSet = useMemo(() => new Set(closedDates), [closedDates]);
-
-  function ymdLocal(d: Date) {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
 
   function isClosedISO(iso: string) {
     return !!iso && closedSet.has(iso);
   }
 
-  // ✅ Trova tutte le date nel range [from, to] (inclusivo) che sono chiuse
-  function closedWithinRange(fromISO: string, toISO: string) {
-    if (!fromISO || !toISO) return [];
-    if (toISO < fromISO) return [];
-    const from = new Date(fromISO + "T00:00:00");
-    const to = new Date(toISO + "T00:00:00");
-    const out: string[] = [];
-    for (let d = new Date(from); d.getTime() <= to.getTime(); d.setDate(d.getDate() + 1)) {
-      const iso = ymdLocal(d);
-      if (closedSet.has(iso)) out.push(iso);
+  // =========================
+  // ✅ Availability decision (OPZIONE A + pernottamento)
+  // =========================
+  const dailySelectedISO = usesOvernightDates ? dateFrom : date;
+
+  const isDayAvailable = useMemo(() => {
+    const d = dailySelectedISO;
+    if (!d) return true;
+    if (isClosedISO(d)) return false;
+    // Day Charter 10–18: blocca se overlap con slot day
+    return !slotBlockedByBusy(busyMap, d, SLOT_DAY);
+  }, [dailySelectedISO, busyMap, closedSet]);
+const isHalfDayAvailable = useMemo(() => {
+  const d = dailySelectedISO;
+  if (!d) return true;
+  if (isClosedISO(d)) return false;
+  const slot = halfdaySlot === "Mattina" ? SLOT_HALF_AM : SLOT_HALF_PM;
+  return !slotBlockedByBusy(busyMap, d, slot);
+}, [dailySelectedISO, busyMap, closedSet, halfdaySlot]);
+
+   const isHalfDayAfternoonAvailable = useMemo(() => {
+    const d = dailySelectedISO;
+    if (!d) return true;
+    if (isClosedISO(d)) return false;
+    return !slotBlockedByBusy(busyMap, d, SLOT_HALF_PM);
+  }, [dailySelectedISO, busyMap, closedSet]);
+
+
+  const isSunsetAvailable = useMemo(() => {
+    const d = dailySelectedISO;
+    if (!d) return true;
+    if (isClosedISO(d)) return false;
+    return !slotBlockedByBusy(busyMap, d, SLOT_SUNSET);
+  }, [dailySelectedISO, busyMap, closedSet]);
+
+  const isOvernightAvailable = useMemo(() => {
+    if (!usesOvernightDates) return true;
+    if (!dateFrom || !dateTo) return true;
+
+    // range Da→A incluso (come hai chiesto)
+    const days = rangeDaysInclusive(dateFrom, dateTo);
+    if (!days.length) return true;
+
+    for (const day of days) {
+      // all-day chiuso => blocca sempre
+      if (isClosedISO(day)) return false;
+
+      const hasBusy = dayHasAnyBusy(busyMap, day);
+      if (!hasBusy) continue;
+
+      if (day === dateFrom) {
+        // giorno di arrivo: OK se TUTTI gli eventi finiscono entro 18:00
+        // (Sunset o qualsiasi cosa dopo 18:00 => blocca)
+        if (!allIntervalsEndBefore(busyMap, day, MIN_18_00)) return false;
+      } else {
+        // tutti gli altri giorni (incluso check-out): qualsiasi busy => blocca
+        return false;
+      }
     }
-    return out;
-  }
 
-  // ✅ Messaggio errore "chiaro"
-  const selectionClosedMessage = useMemo(() => {
-    if (!hasClosedInSelection) return null;
-    if (!usesOvernightDates) return `⚠️ Data non disponibile: ${closedDates.join(", ")}`;
-    return `⚠️ Nel range selezionato ci sono date non disponibili: ${closedDates.join(", ")}`;
-  }, [hasClosedInSelection, usesOvernightDates, closedDates]);
+    return true;
+  }, [usesOvernightDates, dateFrom, dateTo, busyMap, closedSet]);
 
-  const waDisabled = checkingAvailability || !!availabilityError || hasClosedInSelection;
+  const selectedAvailabilityOk = useMemo(() => {
+    if (availabilityError) return false;
+    if (checkingAvailability) return false;
+
+    if (baseExpForCalc === "day") return isDayAvailable;
+    if (baseExpForCalc === "halfday") return isHalfDayAvailable;
+    if (baseExpForCalc === "sunset") return isSunsetAvailable;
+    if (baseExpForCalc === "overnight") return isOvernightAvailable;
+
+    // custom: dipende dalla base selezionata (lastBaseExperience)
+    if (selected === "custom") {
+      if (lastBaseExperience === "day") return isDayAvailable;
+      if (lastBaseExperience === "halfday") return isHalfDayAvailable;
+      if (lastBaseExperience === "sunset") return isSunsetAvailable;
+      if (lastBaseExperience === "overnight") return isOvernightAvailable;
+    }
+
+    return true;
+  }, [
+    availabilityError,
+    checkingAvailability,
+    baseExpForCalc,
+    isDayAvailable,
+    isHalfDayAvailable,
+    isSunsetAvailable,
+    isOvernightAvailable,
+    selected,
+    lastBaseExperience,
+  ]);
+
+  const availabilityLabel = useMemo(() => {
+    if (checkingAvailability) return t("checking");
+    if (availabilityError) return t("error");
+    return selectedAvailabilityOk ? t("available") : t("notAvailable");
+  }, [checkingAvailability, availabilityError, selectedAvailabilityOk, t]);
+
+  const selectionMessage = useMemo(() => {
+    if (availabilityError) return availabilityError;
+
+    if (selectedAvailabilityOk) return null;
+
+    // messaggio chiaro per l’esperienza selezionata
+    if (baseExpForCalc === "day") return "⚠️ Giorno occupato nella fascia 10:00–18:00.";
+    if (baseExpForCalc === "halfday") {
+      return halfdaySlot === "Mattina"
+        ? "⚠️ Mezza giornata mattina occupata (10:00–14:00)."
+        : "⚠️ Mezza giornata pomeriggio occupata (14:30–18:30).";
+    }
+    if (baseExpForCalc === "sunset") return "⚠️ Sunset occupato (19:00–21:30).";
+    if (baseExpForCalc === "overnight") return "⚠️ Pernottamento non disponibile nel range selezionato.";
+
+    if (selected === "custom") return "⚠️ Base selezionata non disponibile per le date scelte.";
+    return "⚠️ Non disponibile.";
+  }, [availabilityError, selectedAvailabilityOk, baseExpForCalc, halfdaySlot, selected]);
+
+  const waDisabled = checkingAvailability || !!availabilityError || !selectedAvailabilityOk;
   const canSendWhatsapp = !waDisabled;
 
+  // =========================
+  // ✅ WhatsApp text
+  // =========================
   const whatsappText = useMemo(() => {
     const lines: string[] = [];
     lines.push(`Ciao! Vorrei fare una *richiesta* per ${BOAT.name} (${BOAT.location}).`);
@@ -729,19 +838,15 @@ const fixedExtrasTotal = useMemo(() => {
       lines.push(`*A:* ${dateTo}`);
       lines.push(`*Notti:* ${nights || "—"}`);
       lines.push(`*Prezzo notte:* ${formatEUR(effective.night)} (${seasonLabel})`);
-      lines.push(`*Dettaglio:* ${priceLabel}`);
     } else {
       lines.push(`*Data:* ${date}`);
-      lines.push(
-        `*Prezzo base stimato:* ${basePrice !== null ? formatEUR(basePrice) : "Da definire"} (${seasonLabel})`
-      );
+      lines.push(`*Prezzo base stimato:* ${basePrice !== null ? formatEUR(basePrice) : "Da definire"} (${seasonLabel})`);
+      if (selected === "halfday") lines.push(`*Fascia:* ${halfdaySlot}`);
     }
 
-    // Extra opzionali
     lines.push(`*Persone:* ${people}`);
     if (extrasTotal > 0) lines.push(`*Extra opzionali:* ${formatEUR(extrasTotal)}`);
 
-    // Extra fissi obbligatori (breakdown)
     lines.push("");
     lines.push("*Extra fissi (obbligatori):*");
     lines.push(`- Skipper: ${formatEUR(FEE_SKIPPER)}`);
@@ -752,19 +857,7 @@ const fixedExtrasTotal = useMemo(() => {
       lines.push(`- ${OVERNIGHT_FUEL_NOTE}`);
     }
 
-    // Totale finale
     lines.push(`*Totale stimato:* ${formatEUR(grandTotalEstimated)}`);
-
-    if (hasClosedInSelection) {
-      lines.push("");
-      lines.push(`⚠️ Nota: nel calendario risultano occupate queste date: ${closedDates.join(", ")}`);
-    }
-
-    lines.push("");
-    lines.push(
-      "*Incluso:* skipper, maschere e boccaglio, paddle SUP, dinghy. (per pernottamento: lenzuola e asciugamani)"
-    );
-    lines.push("*Non incluso:* carburante e cambusa.");
 
     if (name.trim()) lines.push(`*Nome:* ${name.trim()}`);
     if (notes.trim()) lines.push(`*Note:* ${notes.trim()}`);
@@ -792,10 +885,6 @@ const fixedExtrasTotal = useMemo(() => {
     notes,
     halfdaySlot,
     extrasTotal,
-    totalEstimated,
-    priceLabel,
-    hasClosedInSelection,
-    closedDates,
     grandTotalEstimated,
   ]);
 
@@ -816,7 +905,6 @@ const fixedExtrasTotal = useMemo(() => {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-sky-500 via-cyan-500 to-indigo-700">
-      {/* ✅ SAFE AREA: evita che la “costina” iPhone copra il fondo */}
       <div className="mx-auto max-w-md px-4 pt-6 pb-[calc(96px+env(safe-area-inset-bottom))]">
         <div className="rounded-[28px] bg-white/15 backdrop-blur-md border border-white/25 shadow-[0_20px_60px_rgba(0,0,0,0.18)] p-5">
           <div className="flex items-start justify-between gap-3">
@@ -825,9 +913,7 @@ const fixedExtrasTotal = useMemo(() => {
               <p className="text-white/90 mt-1">{t("subtitle")}</p>
             </div>
 
-            {/* ✅ COLONNA DESTRA: Lingua (in alto a destra) + Barca */}
             <div className="relative flex flex-col items-end gap-2 text-right">
-              {/* ✅ Lingua (spostata qui) */}
               <button
                 type="button"
                 onClick={(e) => {
@@ -840,7 +926,6 @@ const fixedExtrasTotal = useMemo(() => {
                 <div className="text-sm font-extrabold text-white">{lang.toUpperCase()}</div>
               </button>
 
-              {/* ✅ Dropdown verso il basso */}
               {langOpen && (
                 <div
                   className="absolute right-0 top-full mt-2 z-30 w-[140px] rounded-2xl border border-white/25 bg-white shadow-[0_14px_30px_rgba(0,0,0,0.20)] overflow-hidden"
@@ -865,7 +950,6 @@ const fixedExtrasTotal = useMemo(() => {
                 </div>
               )}
 
-              {/* Barca */}
               <div>
                 <div className="text-xs text-white/75">{t("boat")}</div>
                 <div className="font-semibold text-white">{BOAT.name}</div>
@@ -949,27 +1033,49 @@ const fixedExtrasTotal = useMemo(() => {
                     );
                   })}
                 </div>
+
+                {/* ✅ Fascia Mezza giornata (solo quando selezionata) */}
+                {selected === "halfday" && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setHalfdaySlot("Mattina")}
+                      className={[
+                        "rounded-xl px-3 py-2 text-sm font-semibold border transition",
+                        halfdaySlot === "Mattina"
+                          ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200"
+                          : "border-gray-200 bg-white hover:border-gray-300",
+                      ].join(" ")}
+                    >
+                      {t("halfAM")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHalfdaySlot("Pomeriggio")}
+                      className={[
+                        "rounded-xl px-3 py-2 text-sm font-semibold border transition",
+                        halfdaySlot === "Pomeriggio"
+                          ? "border-transparent bg-gradient-to-b from-sky-50 to-white ring-2 ring-sky-200"
+                          : "border-gray-200 bg-white hover:border-gray-300",
+                      ].join(" ")}
+                    >
+                      {t("halfPM")}
+                    </button>
+                  </div>
+                )}
               </section>
 
-              {/* BLOCCO DISPONIBILITÀ (riassunto) */}
+              {/* BLOCCO DISPONIBILITÀ */}
               <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.06)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-xs text-slate-800">{t("availability")}</div>
-                    <div className="font-bold text-gray-900">
-                      {checkingAvailability
-                        ? t("checking")
-                        : hasClosedInSelection
-                        ? t("notAvailable")
-                        : availabilityError
-                        ? t("error")
-                        : t("available")}
-                    </div>
+                    <div className="font-bold text-gray-900">{availabilityLabel}</div>
                   </div>
                   <div className="text-right">
                     {availabilityError ? (
                       <div className="text-xs text-red-600 font-semibold">{t("error")}</div>
-                    ) : hasClosedInSelection ? (
+                    ) : !selectedAvailabilityOk ? (
                       <div className="text-xs text-red-600 font-semibold">{t("notAvailable")}</div>
                     ) : (
                       <div className="text-xs text-emerald-700 font-semibold">OK</div>
@@ -977,13 +1083,27 @@ const fixedExtrasTotal = useMemo(() => {
                   </div>
                 </div>
                 <p className="text-xs text-slate-800 mt-2">{t("datesInfo")}</p>
-                {(availabilityError || selectionClosedMessage) && (
-  <p className="text-xs text-red-600 font-semibold mt-2">
-    {availabilityError ?? selectionClosedMessage}
-  </p>
-)}
-
+                {selectionMessage && <p className="text-xs text-red-600 font-semibold mt-2">{selectionMessage}</p>}
               </section>
+
+
+
+
+{!selectedAvailabilityOk &&
+  baseExpForCalc === "halfday" &&
+  halfdaySlot === "Mattina" &&
+  isHalfDayAfternoonAvailable && (
+    <p className="text-xs text-slate-800 font-semibold mt-2">
+      👉 <span className="font-extrabold">
+        Disponibile nel pomeriggio (14:30–18:30)
+      </span>{" "}
+      — perfetto per godersi il mare 🌊
+    </p>
+  )}
+
+
+
+
 
               {/* EXTRA (UI SOLO in Personalizzata) */}
               {selected === "custom" && (
@@ -1076,28 +1196,12 @@ const fixedExtrasTotal = useMemo(() => {
                         <input
                           type="date"
                           value={dateFrom}
-                           onChange={(e) => {
-  const v = e.target.value;
-
-  // Se la data scelta è chiusa → blocca subito
-  if (isClosedISO(v)) {
-    setAvailabilityError(`Data non disponibile: ${v}`);
-    return;
-  }
-
-  setAvailabilityError(null);
-  setFromSafe(v);
-
-  // Se esiste già "A", controlla che il range non includa chiusi
-  const to = dateTo;
-  if (to && v && to > v) {
-    const bad = closedWithinRange(v, to);
-    if (bad.length) {
-      setAvailabilityError(`Nel range selezionato ci sono date non disponibili: ${bad.join(", ")}`);
-    }
-  }
-}}
-                        
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setAvailabilityError(null);
+                            setFromSafe(v);
+                          }}
+                          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
                         />
                       </div>
                       <div>
@@ -1106,20 +1210,10 @@ const fixedExtrasTotal = useMemo(() => {
                           type="date"
                           value={dateTo}
                           onChange={(e) => {
-  const v = e.target.value;
-
-  setAvailabilityError(null);
-  setToSafe(v);
-
-  const from = dateFrom;
-  if (from && v && v > from) {
-    const bad = closedWithinRange(from, v);
-    if (bad.length) {
-      setAvailabilityError(`Nel range selezionato ci sono date non disponibili: ${bad.join(", ")}`);
-    }
-  }
-}}
-
+                            const v = e.target.value;
+                            setAvailabilityError(null);
+                            setToSafe(v);
+                          }}
                           className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
                         />
                       </div>
@@ -1135,18 +1229,11 @@ const fixedExtrasTotal = useMemo(() => {
                       <input
                         type="date"
                         value={date}
-                       onChange={(e) => {
-  const v = e.target.value;
-
-  if (isClosedISO(v)) {
-    setAvailabilityError(`Data non disponibile: ${v}`);
-    return;
-  }
-
-  setAvailabilityError(null);
-  setDate(v);
-}}
-
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAvailabilityError(null);
+                          setDate(v);
+                        }}
                         className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
                       />
                       <div className="mt-2 text-xs text-slate-900">
@@ -1243,27 +1330,9 @@ const fixedExtrasTotal = useMemo(() => {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs text-slate-800">{t("estimated")}</div>
-                    {baseExpForCalc === "overnight" ? (
-                      <>
-                        <div className="text-lg font-extrabold">
-                          {formatEUR(getEffectivePrices({ season, auto: seasonMode === "auto", baseDate: seasonBaseDate }).night)}{" "}
-                          / notte
-                        </div>
-                        <div className="text-xs text-slate-800 mt-1">{priceLabel}</div>
-                        {extrasTotal > 0 && (
-                          <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-lg font-extrabold">{basePrice !== null ? formatEUR(basePrice) : "Da definire"}</div>
-                        {extrasTotal > 0 && (
-                          <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>
-                        )}
-                      </>
-                    )}
+                    <div className="text-lg font-extrabold">{basePrice !== null ? formatEUR(basePrice) : "Da definire"}</div>
+                    {extrasTotal > 0 && <div className="text-xs text-slate-800 mt-1">Extra: {formatEUR(extrasTotal)}</div>}
 
-                    {/* ✅ TABELLA EXTRA FISSI + TOTALE FINALE */}
                     <div className="mt-3 rounded-xl border border-gray-200 bg-white/80 p-3">
                       <div className="text-[11px] font-semibold text-slate-800 mb-2">Dettaglio prezzo</div>
 
@@ -1345,7 +1414,7 @@ const fixedExtrasTotal = useMemo(() => {
                 </div>
               </section>
 
-              {/* CTA ROW: WhatsApp + Pagamento */}
+              {/* CTA ROW */}
               <section className="pt-1">
                 <div className="grid grid-cols-3 gap-2 items-stretch">
                   {canSendWhatsapp ? (
@@ -1363,7 +1432,7 @@ const fixedExtrasTotal = useMemo(() => {
                       disabled
                       className="col-span-2 block w-full rounded-2xl text-white/95 text-center font-extrabold py-3 bg-gray-500 cursor-not-allowed"
                     >
-                      {checkingAvailability ? t("waChecking") : hasClosedInSelection ? t("waClosed") : t("waError")}
+                      {checkingAvailability ? t("waChecking") : t("waClosed")}
                     </button>
                   )}
 
