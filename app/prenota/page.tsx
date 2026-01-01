@@ -232,6 +232,8 @@ function safeReadLang(): Lang {
   } catch {}
   return "it";
 }
+// ✅ FIX iPhone Dark Mode: forza gli input (date/number) in stile chiaro
+const IOS_LIGHT_INPUT_STYLE: React.CSSProperties = { colorScheme: "light" };
 
 export default function Page() {
   const today = useMemo(() => new Date(), []);
