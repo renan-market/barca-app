@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 const PRICES = {
   day: 0, // TODO: metti prezzo DAY
@@ -12,14 +12,7 @@ const PRICES = {
 
 const TZ = "Europe/Madrid";
 
-// Orari definitivi (OPZIONE A)
-const SLOT = {
-  day: [10 * 60, 18 * 60] as const, // 10:00-18:00
-  halfAM: [10 * 60, 14 * 60] as const, // 10:00-14:00
-  halfPM: [14 * 60 + 30, 18 * 60 + 30] as const, // 14:30-18:30
-  sunset: [19 * 60, 21 * 60 + 30] as const, // 19:00-21:30
-};
-
+// ✅ NIENTE readonly/as const → tuple semplici e stabili
 type Interval = [number, number]; // minuti [start,end)
 type BusyMap = Record<string, Interval[]>;
 
@@ -29,6 +22,13 @@ type ApiResponse = {
   closed: string[];
   busy: BusyMap;
   v?: number;
+};
+
+const SLOT: Record<"day" | "halfAM" | "halfPM" | "sunset", Interval> = {
+  day: [10 * 60, 18 * 60], // 10:00-18:00
+  halfAM: [10 * 60, 14 * 60], // 10:00-14:00
+  halfPM: [14 * 60 + 30, 18 * 60 + 30], // 14:30-18:30
+  sunset: [19 * 60, 21 * 60 + 30], // ✅ 19:00-21:30 (2h30)
 };
 
 function euro(n: number) {
@@ -41,7 +41,6 @@ function euro(n: number) {
 }
 
 function todayInTz(tz: string) {
-  // YYYY-MM-DD in timezone tz
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: tz,
     year: "numeric",
@@ -54,13 +53,9 @@ function overlaps(a: Interval, b: Interval) {
   return a[0] < b[1] && b[0] < a[1];
 }
 
-function isSlotBlocked(
-  busy: readonly [number, number][],
-  slot: readonly [number, number]
-) {
+function isSlotBlocked(busy: Interval[], slot: Interval) {
   return busy.some((it) => overlaps(it, slot));
 }
-
 
 type CardProps = {
   title: string;
@@ -169,28 +164,27 @@ export default function Page() {
   }, [selectedDate]);
 
   const { closedSet, intervals } = useMemo(() => {
-  const closedSet = new Set(api?.closed ?? []);
-  const intervals = (api?.busy?.[selectedDate] ?? []) as Interval[];
-  return { closedSet, intervals };
-}, [api, selectedDate]);
+    const closedSet = new Set(api?.closed ?? []);
+    const raw = api?.busy?.[selectedDate] ?? [];
 
+    // ✅ Normalizzo sempre a tuple MUTABILI [number, number]
+    const intervals: Interval[] = raw.map((it) => [it[0], it[1]]);
+
+    return { closedSet, intervals };
+  }, [api, selectedDate]);
 
   const isClosedAllDay = useMemo(
-  () => closedSet.has(selectedDate),
-  [closedSet, selectedDate]
-);
+    () => closedSet.has(selectedDate),
+    [closedSet, selectedDate]
+  );
 
-  // Blocchi per fasce (OPZIONE A)
+  // Blocchi per fasce
   const dayBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.day);
-const halfAMBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.halfAM);
-const halfPMBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.halfPM);
-const sunsetBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.sunset);
+  const halfAMBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.halfAM);
+  const halfPMBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.halfPM);
+  const sunsetBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.sunset);
 
-
-  // Mezza giornata (card generica): la rendiamo NON disponibile solo se entrambe le mezze giornate sono bloccate.
-  const halfdayBlocked = isClosedAllDay || (halfAMBlocked && halfPMBlocked);
-
-  // Pernottamento: blocchiamo solo se il giorno è full-day (evento TUTTO IL GIORNO).
+  // Pernottamento: blocchiamo solo se giorno full-day (evento tutto il giorno)
   const nightBlocked = isClosedAllDay;
 
   const warning = "Non disponibile per questa attività";
@@ -205,13 +199,16 @@ const sunsetBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.sunset);
           Esperienze private in catamarano
         </p>
 
-        {/* ✅ Selettore Data (grafica coerente) */}
+        {/* Selettore Data */}
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_10px_26px_rgba(0,0,0,0.06)] text-left">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <p className="text-base font-extrabold text-gray-900">Seleziona data</p>
+              <p className="text-base font-extrabold text-gray-900">
+                Seleziona data
+              </p>
               <p className="text-sm font-medium text-gray-700">
-                La disponibilità qui sotto si aggiorna in base al tuo Google Calendar.
+                La disponibilità qui sotto si aggiorna in base al tuo Google
+                Calendar.
               </p>
             </div>
 
@@ -228,7 +225,6 @@ const sunsetBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.sunset);
             </div>
           </div>
 
-          {/* mini riassunto */}
           <div className="mt-3 flex flex-wrap gap-2">
             <Pill ok={!dayBlocked} label="Day 10–18" />
             <Pill ok={!halfAMBlocked} label="Half Mattina 10–14" />
@@ -237,6 +233,7 @@ const sunsetBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.sunset);
           </div>
         </div>
 
+        {/* ✅ QUI: 2 CARD SEPARATE PER MEZZA GIORNATA */}
         <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
           {/* Day */}
           {dayBlocked ? (
@@ -259,35 +256,44 @@ const sunsetBlocked = isClosedAllDay || isSlotBlocked(intervals, SLOT.sunset);
             </Link>
           )}
 
-          {/* Halfday (card generica) */}
-          {halfdayBlocked ? (
+          {/* Half AM */}
+          {halfAMBlocked ? (
             <div className="block">
               <ExperienceCard
-                title="Mezza giornata"
-                subtitle="Scegli Mattina o Pomeriggio"
+                title="Mezza Giornata"
+                subtitle="Mattina · 10:00 – 14:00"
                 price={euro(PRICES.halfday)}
                 disabled
                 warningText={warning}
-                extraLines={
-                  <div className="flex flex-wrap gap-2">
-                    <Pill ok={!halfAMBlocked} label="Mattina 10–14" />
-                    <Pill ok={!halfPMBlocked} label="Pomeriggio 14:30–18:30" />
-                  </div>
-                }
               />
             </div>
           ) : (
             <Link href="/prenota" className="block">
               <ExperienceCard
-                title="Mezza giornata"
-                subtitle="Scegli Mattina o Pomeriggio"
+                title="Mezza Giornata"
+                subtitle="Mattina · 10:00 – 14:00"
                 price={euro(PRICES.halfday)}
-                extraLines={
-                  <div className="flex flex-wrap gap-2">
-                    <Pill ok={!halfAMBlocked} label="Mattina 10–14" />
-                    <Pill ok={!halfPMBlocked} label="Pomeriggio 14:30–18:30" />
-                  </div>
-                }
+              />
+            </Link>
+          )}
+
+          {/* Half PM */}
+          {halfPMBlocked ? (
+            <div className="block">
+              <ExperienceCard
+                title="Mezza Giornata"
+                subtitle="Pomeriggio · 14:30 – 18:30"
+                price={euro(PRICES.halfday)}
+                disabled
+                warningText={warning}
+              />
+            </div>
+          ) : (
+            <Link href="/prenota" className="block">
+              <ExperienceCard
+                title="Mezza Giornata"
+                subtitle="Pomeriggio · 14:30 – 18:30"
+                price={euro(PRICES.halfday)}
               />
             </Link>
           )}
