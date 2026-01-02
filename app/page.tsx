@@ -19,19 +19,18 @@ type ApiResponse = {
    CONFIG — MODIFICA QUI
    ========================= */
 
-// ✅ Metti qui i PERCORSI REALI delle tue 10 foto in /public
-// Esempio: se hai /public/hero/1.jpg allora scrivi "/hero/1.jpg"
+// ✅ PERCORSI REALI delle tue 10 foto in /public
 const HERO_IMAGES: string[] = [
-  "/hero/1.jpg",
-  "/hero/2.jpg",
-  "/hero/3.jpg",
-  "/hero/4.jpg",
-  "/hero/5.jpg",
-  "/hero/6.jpg",
-  "/hero/7.jpg",
-  "/hero/8.jpg",
-  "/hero/9.jpg",
-  "/hero/10.jpg",
+  "/boats/Lagoon-38/01.jpg",
+  "/boats/Lagoon-38/02.jpg",
+  "/boats/Lagoon-38/03.jpg",
+  "/boats/Lagoon-38/04.jpg",
+  "/boats/Lagoon-38/05.jpg",
+  "/boats/Lagoon-38/06.jpg",
+  "/boats/Lagoon-38/07.jpg",
+  "/boats/Lagoon-38/08.jpg",
+  "/boats/Lagoon-38/09.jpg",
+  "/boats/Lagoon-38/10.jpg",
 ];
 
 // Timezone
@@ -42,7 +41,7 @@ const SLOT: Record<ExperienceId, Interval | null> = {
   half_am: [10 * 60, 14 * 60], // 10:00–14:00
   half_pm: [14 * 60 + 30, 18 * 60 + 30], // 14:30–18:30
   day: [10 * 60, 18 * 60], // 10:00–18:00
-  sunset: [19 * 60, 21 * 60 + 30], // ✅ 19:00–21:30
+  sunset: [19 * 60, 21 * 60 + 30], // 19:00–21:30 (2h30)
   overnight: null, // multi-day
 };
 
@@ -57,24 +56,22 @@ const SEASON_PRICES: Record<
   high: { day: 1100, halfday: 780, sunset: 650, night: 600 },
 };
 
-// Mappa mesi → stagione (puoi cambiarla come vuoi)
+// Mappa mesi → stagione
 function seasonFromDateISO(dateISO: string): Season {
-  // dateISO: YYYY-MM-DD
   const m = Number(dateISO.slice(5, 7)); // 1..12
-  // Scelta pratica (modificabile):
   // Low: Nov–Mar, Mid: Apr–May & Oct, High: Jun–Sep
   if (m === 11 || m === 12 || m === 1 || m === 2 || m === 3) return "low";
   if (m === 4 || m === 5 || m === 10) return "mid";
   return "high"; // 6,7,8,9
 }
 
-// Spese fisse obbligatorie (metti i tuoi numeri)
-const FIXED_COSTS = [
-  { id: "skipper", labelKey: "fixed_skipper", price: 0 },
-  { id: "fuel", labelKey: "fixed_fuel", price: 0 },
-  { id: "cleaning", labelKey: "fixed_cleaning", price: 0 },
-  { id: "diesel", labelKey: "fixed_diesel", price: 0 },
-];
+// ✅ Spese fisse — REGOLE UFFICIALI (Renan)
+const FIXED_RULES = {
+  skipper_per_day: 170, // Overnight: 170€ AL GIORNO (moltiplica per giorni)
+  fuel_halfday_day_sunset: 40, // Half/Day/Sunset: 40€ (da sommare)
+  cleaning: 50, // sempre da sommare
+  fuel_multiday_info_per_hour: 15, // Overnight: solo informativo (NON sommare)
+};
 
 // Extra opzionali (prezzi confermati)
 const EXTRA_PRICES = {
@@ -83,6 +80,9 @@ const EXTRA_PRICES = {
   drinks_pack: 150, // totale (12 persone)
   towel: 15, // a telo
 };
+
+// WhatsApp (numero fisso)
+const WHATSAPP_NUMBER = "393398864884"; // 39 + 3398864884
 
 // Link pagamento (metti il tuo link Stripe / checkout)
 const PAYMENT_URL = "#";
@@ -128,7 +128,6 @@ const I18N: Record<
     fixed_skipper: string;
     fixed_fuel: string;
     fixed_cleaning: string;
-    fixed_diesel: string;
 
     extra_seabob: string;
     extra_catering: string;
@@ -145,6 +144,22 @@ const I18N: Record<
     season_high: string;
 
     summary: string;
+
+    fuel_multiday_note_title: string;
+    fuel_multiday_note_body: string;
+    days: string;
+
+    // ✅ nuovi campi richiesta
+    requestTitle: string;
+    clientName: string;
+    clientNamePh: string;
+    clientNote: string;
+    clientNotePh: string;
+
+    // foto
+    photosTitle: string;
+    photosHint: string;
+    photoMissing: string;
   }
 > = {
   it: {
@@ -179,7 +194,6 @@ const I18N: Record<
     fixed_skipper: "Skipper",
     fixed_fuel: "Carburante",
     fixed_cleaning: "Pulizie",
-    fixed_diesel: "Gasolio",
     extra_seabob: "SeaBob",
     extra_catering: "Catering",
     extra_drinks: "Pacchetto bevande (12 persone)",
@@ -192,6 +206,21 @@ const I18N: Record<
     season_mid: "Media",
     season_high: "Alta",
     summary: "Riepilogo",
+    fuel_multiday_note_title: "Nota carburante (Multi-day)",
+    fuel_multiday_note_body:
+      "Carburante motori: {x} / ora (solo informativo – NON incluso nel totale).",
+    days: "Giorni",
+
+    requestTitle: "Richiesta cliente",
+    clientName: "Nome cliente",
+    clientNamePh: "Es. Marco Rossi",
+    clientNote: "Commento / Domanda",
+    clientNotePh: "Es. Vorrei sapere se possiamo fare snorkeling, punto d’incontro, ecc…",
+
+    photosTitle: "Foto",
+    photosHint:
+      "Se non vedi le foto: controlla che esistano davvero in /public con gli stessi nomi.",
+    photoMissing: "Foto non trovata",
   },
   es: {
     langLabel: "Español",
@@ -214,18 +243,17 @@ const I18N: Record<
     dateTo: "Hasta",
     exp_half_am: "Media jornada (Mañana)",
     exp_half_pm: "Media jornada (Tarde)",
-    exp_day: "Día completo",
+    exp_day: "Day Charter",
     exp_sunset: "Sunset",
     exp_overnight: "Pernocta",
     half_am_sub: "10:00 – 14:00",
     half_pm_sub: "14:30 – 18:30",
     day_sub: "10:00 – 18:00",
     sunset_sub: "19:00 – 21:30",
-    overnight_sub: "Multi-day (fechas)",
+    overnight_sub: "Multi-day (rango)",
     fixed_skipper: "Skipper",
     fixed_fuel: "Combustible",
     fixed_cleaning: "Limpieza",
-    fixed_diesel: "Gasoil",
     extra_seabob: "SeaBob",
     extra_catering: "Catering",
     extra_drinks: "Pack bebidas (12 personas)",
@@ -238,6 +266,21 @@ const I18N: Record<
     season_mid: "Media",
     season_high: "Alta",
     summary: "Resumen",
+    fuel_multiday_note_title: "Nota combustible (Multi-day)",
+    fuel_multiday_note_body:
+      "Combustible motores: {x} / hora (solo informativo – NO incluido en el total).",
+    days: "Días",
+
+    requestTitle: "Solicitud del cliente",
+    clientName: "Nombre del cliente",
+    clientNamePh: "Ej. Marco Rossi",
+    clientNote: "Comentario / Pregunta",
+    clientNotePh: "Ej. Punto de encuentro, dudas, etc…",
+
+    photosTitle: "Fotos",
+    photosHint:
+      "Si no ves las fotos: revisa que existan en /public con los mismos nombres.",
+    photoMissing: "Foto no encontrada",
   },
   en: {
     langLabel: "English",
@@ -271,7 +314,6 @@ const I18N: Record<
     fixed_skipper: "Skipper",
     fixed_fuel: "Fuel",
     fixed_cleaning: "Cleaning",
-    fixed_diesel: "Diesel",
     extra_seabob: "SeaBob",
     extra_catering: "Catering",
     extra_drinks: "Drinks pack (12 people)",
@@ -284,6 +326,21 @@ const I18N: Record<
     season_mid: "Mid",
     season_high: "High",
     summary: "Summary",
+    fuel_multiday_note_title: "Fuel note (Multi-day)",
+    fuel_multiday_note_body:
+      "Engine fuel: {x} / hour (informational only – NOT included in total).",
+    days: "Days",
+
+    requestTitle: "Customer request",
+    clientName: "Customer name",
+    clientNamePh: "e.g. Marco Rossi",
+    clientNote: "Comment / Question",
+    clientNotePh: "e.g. Meeting point, questions, etc…",
+
+    photosTitle: "Photos",
+    photosHint:
+      "If you don’t see photos: verify they exist in /public with the same names.",
+    photoMissing: "Photo missing",
   },
   fr: {
     langLabel: "Français",
@@ -306,7 +363,7 @@ const I18N: Record<
     dateTo: "Au",
     exp_half_am: "Demi-journée (Matin)",
     exp_half_pm: "Demi-journée (Après-midi)",
-    exp_day: "Journée",
+    exp_day: "Day Charter",
     exp_sunset: "Sunset",
     exp_overnight: "Nuit",
     half_am_sub: "10:00 – 14:00",
@@ -317,7 +374,6 @@ const I18N: Record<
     fixed_skipper: "Skipper",
     fixed_fuel: "Carburant",
     fixed_cleaning: "Nettoyage",
-    fixed_diesel: "Gazole",
     extra_seabob: "SeaBob",
     extra_catering: "Catering",
     extra_drinks: "Pack boissons (12 pers.)",
@@ -330,6 +386,21 @@ const I18N: Record<
     season_mid: "Moyenne",
     season_high: "Haute",
     summary: "Résumé",
+    fuel_multiday_note_title: "Note carburant (Multi-day)",
+    fuel_multiday_note_body:
+      "Carburant moteur: {x} / heure (info seulement – NON inclus dans le total).",
+    days: "Jours",
+
+    requestTitle: "Demande client",
+    clientName: "Nom du client",
+    clientNamePh: "ex. Marco Rossi",
+    clientNote: "Commentaire / Question",
+    clientNotePh: "ex. Point de rendez-vous, questions, etc…",
+
+    photosTitle: "Photos",
+    photosHint:
+      "Si vous ne voyez pas les photos : vérifiez /public et les noms de fichiers.",
+    photoMissing: "Photo introuvable",
   },
   de: {
     langLabel: "Deutsch",
@@ -352,18 +423,17 @@ const I18N: Record<
     dateTo: "Bis",
     exp_half_am: "Halbtags (Vormittag)",
     exp_half_pm: "Halbtags (Nachmittag)",
-    exp_day: "Tag",
+    exp_day: "Day Charter",
     exp_sunset: "Sunset",
     exp_overnight: "Übernachtung",
     half_am_sub: "10:00 – 14:00",
     half_pm_sub: "14:30 – 18:30",
     day_sub: "10:00 – 18:00",
     sunset_sub: "19:00 – 21:30",
-    overnight_sub: "Mehrere Tage (Datumsspanne)",
+    overnight_sub: "Mehrere Tage (Spanne)",
     fixed_skipper: "Skipper",
     fixed_fuel: "Treibstoff",
     fixed_cleaning: "Reinigung",
-    fixed_diesel: "Diesel",
     extra_seabob: "SeaBob",
     extra_catering: "Catering",
     extra_drinks: "Getränkepaket (12 Pers.)",
@@ -376,6 +446,21 @@ const I18N: Record<
     season_mid: "Mittel",
     season_high: "Hoch",
     summary: "Zusammenfassung",
+    fuel_multiday_note_title: "Treibstoff-Hinweis (Multi-day)",
+    fuel_multiday_note_body:
+      "Motor-Treibstoff: {x} / Stunde (nur Info – NICHT im Gesamtpreis).",
+    days: "Tage",
+
+    requestTitle: "Kundenanfrage",
+    clientName: "Kundenname",
+    clientNamePh: "z.B. Marco Rossi",
+    clientNote: "Kommentar / Frage",
+    clientNotePh: "z.B. Treffpunkt, Fragen, etc…",
+
+    photosTitle: "Fotos",
+    photosHint:
+      "Wenn du keine Fotos siehst: prüfe /public und Dateinamen.",
+    photoMissing: "Foto fehlt",
   },
   ru: {
     langLabel: "Русский",
@@ -386,7 +471,7 @@ const I18N: Record<
     available: "Доступно",
     notAvailable: "Недоступно",
     experiences: "Опыт",
-    fixedCosts: "Фиксированные расходы (обязательно)",
+    fixedCosts: "Обязательные расходы",
     extras: "Доп. услуги (опционально)",
     includedFree: "Включено бесплатно",
     total: "Итого",
@@ -398,7 +483,7 @@ const I18N: Record<
     dateTo: "По",
     exp_half_am: "Полдня (утро)",
     exp_half_pm: "Полдня (день)",
-    exp_day: "День",
+    exp_day: "Day Charter",
     exp_sunset: "Sunset",
     exp_overnight: "Ночёвка",
     half_am_sub: "10:00 – 14:00",
@@ -409,7 +494,6 @@ const I18N: Record<
     fixed_skipper: "Шкипер",
     fixed_fuel: "Топливо",
     fixed_cleaning: "Уборка",
-    fixed_diesel: "Дизель",
     extra_seabob: "SeaBob",
     extra_catering: "Кейтеринг",
     extra_drinks: "Напитки (12 человек)",
@@ -422,6 +506,21 @@ const I18N: Record<
     season_mid: "Средний",
     season_high: "Высокий",
     summary: "Итог",
+    fuel_multiday_note_title: "Топливо (Multi-day)",
+    fuel_multiday_note_body:
+      "Топливо моторов: {x} / час (только информация – НЕ включено в итог).",
+    days: "Дни",
+
+    requestTitle: "Запрос клиента",
+    clientName: "Имя клиента",
+    clientNamePh: "например Marco Rossi",
+    clientNote: "Комментарий / Вопрос",
+    clientNotePh: "например место встречи, вопросы, и т.д…",
+
+    photosTitle: "Фото",
+    photosHint:
+      "Если фото не видно: проверь /public и имена файлов.",
+    photoMissing: "Фото не найдено",
   },
 };
 
@@ -430,12 +529,11 @@ const I18N: Record<
    ========================= */
 
 function euro(n: number) {
-  if (!n) return "€___";
   return new Intl.NumberFormat("it-IT", {
     style: "currency",
     currency: "EUR",
     maximumFractionDigits: 0,
-  }).format(n);
+  }).format(n || 0);
 }
 
 function todayInTz(tz: string) {
@@ -470,6 +568,14 @@ function minToHHMM(min: number) {
 
 function formatInterval(it: Interval) {
   return `${minToHHMM(it[0])}–${minToHHMM(it[1])}`;
+}
+
+function daysBetweenISO(fromISO: string, toISO: string) {
+  const a = new Date(`${fromISO}T00:00:00`);
+  const b = new Date(`${toISO}T00:00:00`);
+  const diff = b.getTime() - a.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  return Math.max(1, days || 0);
 }
 
 /* =========================
@@ -554,8 +660,13 @@ export default function Page() {
   const [lang, setLang] = useState<Lang>("it");
   const t = I18N[lang];
 
+  // ✅ nome + commento cliente
+  const [clientName, setClientName] = useState<string>("");
+  const [clientNote, setClientNote] = useState<string>("");
+
   // hero slider
   const [heroIdx, setHeroIdx] = useState(0);
+  const [broken, setBroken] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -579,8 +690,6 @@ export default function Page() {
   const [seabobQty, setSeabobQty] = useState<number>(0);
   const [towelQty, setTowelQty] = useState<number>(0);
   const [drinksPack, setDrinksPack] = useState<boolean>(false);
-
-  // catering: per persona → checkbox + usa "people"
   const [catering, setCatering] = useState<boolean>(false);
 
   // disponibilità api (se esiste)
@@ -593,7 +702,6 @@ export default function Page() {
 
     async function load() {
       if (experience === "overnight") {
-        // per overnight usiamo solo la chiusura full-day del check-in/check-out se vuoi in futuro
         setApi(null);
         return;
       }
@@ -627,31 +735,54 @@ export default function Page() {
     return t.season_high;
   }, [season, t]);
 
+  // giorni per overnight (per skipper)
+  const overnightDays = useMemo(() => {
+    if (experience !== "overnight") return 1;
+    if (compareISO(dateTo, dateFrom) <= 0) return 1;
+    return daysBetweenISO(dateFrom, dateTo);
+  }, [experience, dateFrom, dateTo]);
+
+  // base price (attività)
   const basePrice = useMemo(() => {
     const p = SEASON_PRICES[season];
     if (experience === "day") return p.day;
     if (experience === "half_am" || experience === "half_pm") return p.halfday;
     if (experience === "sunset") return p.sunset;
     if (experience === "overnight") {
-      // prezzo per notte
-      // numero notti = differenza date (semplificato: conta giorni tra date)
-      // Se date uguali → 1 notte (scelta pratica)
-      if (compareISO(dateFrom, dateTo) === 0) return p.night;
-      // calcolo notti: (dateTo - dateFrom) in giorni
-      const a = new Date(`${dateFrom}T00:00:00`);
-      const b = new Date(`${dateTo}T00:00:00`);
-      const diffDays = Math.max(
-        1,
-        Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24))
-      );
-      return p.night * diffDays;
+      const nights =
+        compareISO(dateTo, dateFrom) <= 0 ? 1 : daysBetweenISO(dateFrom, dateTo);
+      return p.night * nights;
     }
     return 0;
   }, [experience, season, dateFrom, dateTo]);
 
+  // spese fisse (obbligatorie) — regole Renan
+  const fixedItems = useMemo(() => {
+    const skipper =
+      experience === "overnight"
+        ? FIXED_RULES.skipper_per_day * overnightDays
+        : FIXED_RULES.skipper_per_day;
+
+    const fuel =
+      experience === "overnight" ? 0 : FIXED_RULES.fuel_halfday_day_sunset;
+
+    const cleaning = FIXED_RULES.cleaning;
+
+    return [
+      { id: "skipper", label: t.fixed_skipper, price: skipper },
+      {
+        id: "fuel",
+        label: t.fixed_fuel,
+        price: fuel,
+        hidden: experience === "overnight",
+      },
+      { id: "cleaning", label: t.fixed_cleaning, price: cleaning },
+    ].filter((x) => !x.hidden);
+  }, [experience, overnightDays, t.fixed_skipper, t.fixed_fuel, t.fixed_cleaning]);
+
   const fixedTotal = useMemo(
-    () => FIXED_COSTS.reduce((sum, x) => sum + (x.price || 0), 0),
-    []
+    () => fixedItems.reduce((sum, x) => sum + (x.price || 0), 0),
+    [fixedItems]
   );
 
   const extrasTotal = useMemo(() => {
@@ -662,11 +793,10 @@ export default function Page() {
     return seabob + towel + drinks + cat;
   }, [seabobQty, towelQty, drinksPack, catering, people]);
 
-  const grandTotal = useMemo(() => basePrice + fixedTotal + extrasTotal, [
-    basePrice,
-    fixedTotal,
-    extrasTotal,
-  ]);
+  const grandTotal = useMemo(
+    () => basePrice + fixedTotal + extrasTotal,
+    [basePrice, fixedTotal, extrasTotal]
+  );
 
   const { closedSet, intervals } = useMemo(() => {
     const closedSet = new Set(api?.closed ?? []);
@@ -700,7 +830,7 @@ export default function Page() {
       halfAMBlocked,
       halfPMBlocked,
       sunsetBlocked,
-      overnightBlocked: isClosedAllDay, // scelta: overnight bloccato solo da evento tutto il giorno
+      overnightBlocked: isClosedAllDay,
     };
   }, [intervals, isClosedAllDay]);
 
@@ -741,15 +871,24 @@ export default function Page() {
 
   const selectedIntervalLabel = useMemo(() => {
     const it = SLOT[experience];
-    if (experience === "overnight") return `${dateFrom} → ${dateTo}`;
+    if (experience === "overnight") {
+      const nights =
+        compareISO(dateTo, dateFrom) <= 0 ? 1 : daysBetweenISO(dateFrom, dateTo);
+      return `${dateFrom} → ${dateTo} • ${t.nights}: ${nights} • ${t.days}: ${overnightDays}`;
+    }
     if (!it) return "";
     return `${selectedDate} • ${formatInterval(it)} (${TZ})`;
-  }, [experience, selectedDate, dateFrom, dateTo]);
+  }, [experience, selectedDate, dateFrom, dateTo, t.nights, t.days, overnightDays]);
 
   const summaryText = useMemo(() => {
     const lines: string[] = [];
+
     lines.push(`${t.title}`);
     lines.push(`${t.summary}:`);
+
+    if (clientName.trim()) lines.push(`• ${t.clientName}: ${clientName.trim()}`);
+    if (clientNote.trim()) lines.push(`• ${t.clientNote}: ${clientNote.trim()}`);
+
     const expTitle =
       experience === "half_am"
         ? t.exp_half_am
@@ -765,57 +904,87 @@ export default function Page() {
     lines.push(`• ${selectedIntervalLabel}`);
     lines.push(`• ${t.people}: ${people}`);
 
-    // extra scelti
+    lines.push(`• ${t.fixedCosts}:`);
+    fixedItems.forEach((it) => lines.push(`  - ${it.label}: ${euro(it.price)}`));
+
+    if (experience === "overnight") {
+      lines.push(
+        `  - ${t.fuel_multiday_note_title}: ${euro(
+          FIXED_RULES.fuel_multiday_info_per_hour
+        )}/ora (NON incluso)`
+      );
+    }
+
     const ex: string[] = [];
-    if (seabobQty > 0) ex.push(`${t.extra_seabob} x${seabobQty} (${euro(seabobQty * EXTRA_PRICES.seabob)})`);
-    if (towelQty > 0) ex.push(`${t.extra_towel} x${towelQty} (${euro(towelQty * EXTRA_PRICES.towel)})`);
+    if (seabobQty > 0)
+      ex.push(`${t.extra_seabob} x${seabobQty} (${euro(seabobQty * EXTRA_PRICES.seabob)})`);
+    if (towelQty > 0)
+      ex.push(`${t.extra_towel} x${towelQty} (${euro(towelQty * EXTRA_PRICES.towel)})`);
     if (drinksPack) ex.push(`${t.extra_drinks} (${euro(EXTRA_PRICES.drinks_pack)})`);
     if (catering) ex.push(`${t.extra_catering} ${people}p (${euro(people * EXTRA_PRICES.catering_pp)})`);
 
-    lines.push(`• ${t.fixedCosts}: ${euro(fixedTotal)}`);
     lines.push(`• ${t.extras}: ${euro(extrasTotal)}`);
-    lines.push(`• ${t.total}: ${euro(grandTotal)}`);
-
     if (ex.length) {
       lines.push(`Extras:`);
       ex.forEach((x) => lines.push(`  - ${x}`));
     }
 
+    lines.push(`• Base: ${euro(basePrice)}`);
+    lines.push(`• ${t.fixedCosts}: ${euro(fixedTotal)}`);
+    lines.push(`• ${t.extras}: ${euro(extrasTotal)}`);
+    lines.push(`• ${t.total}: ${euro(grandTotal)}`);
+
     return lines.join("\n");
   }, [
     t,
+    clientName,
+    clientNote,
     experience,
     selectedIntervalLabel,
     people,
+    fixedItems,
+    fixedTotal,
     seabobQty,
     towelQty,
     drinksPack,
     catering,
-    fixedTotal,
     extrasTotal,
+    basePrice,
     grandTotal,
   ]);
 
   const whatsappHref = useMemo(() => {
     const encoded = encodeURIComponent(summaryText);
-    return `https://wa.me/?text=${encoded}`;
+    return `https://wa.me/${WHATSAPP_NUMBER}?text=${encoded}`;
   }, [summaryText]);
 
-  // UI
+  const currentHero = HERO_IMAGES[heroIdx] || HERO_IMAGES[0];
+  const currentBroken = broken[heroIdx];
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-sky-600 via-sky-500 to-sky-200">
       {/* HERO */}
       <section className="relative">
-        <div className="relative h-[420px] sm:h-[520px] overflow-hidden">
-          <img
-            src={HERO_IMAGES[heroIdx] || HERO_IMAGES[0]}
-            alt="hero"
-            className="h-full w-full object-cover"
-          />
-          {/* overlay per leggibilità */}
+        <div className="relative h-[420px] sm:h-[520px] overflow-hidden bg-slate-900">
+          {!currentBroken ? (
+            <img
+              src={currentHero}
+              alt="hero"
+              className="h-full w-full object-cover"
+              loading="eager"
+              decoding="async"
+              onError={() => setBroken((m) => ({ ...m, [heroIdx]: true }))}
+            />
+          ) : (
+            <div className="h-full w-full flex items-center justify-center text-white/90 font-extrabold">
+              {t.photoMissing}: {currentHero}
+            </div>
+          )}
+
+          {/* overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/30 to-black/10" />
 
-          {/* top bar: lingua */}
+          {/* top bar */}
           <div className="absolute left-0 right-0 top-0 z-10 px-4 pt-4">
             <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
               <div className="rounded-2xl bg-white/15 px-4 py-2 text-sm font-extrabold text-white backdrop-blur border border-white/20">
@@ -858,9 +1027,9 @@ export default function Page() {
               {/* dots + frecce */}
               <div className="mt-5 flex items-center justify-between gap-3">
                 <div className="flex gap-2">
-                  {HERO_IMAGES.map((_, i) => (
+                  {HERO_IMAGES.map((src, i) => (
                     <button
-                      key={i}
+                      key={src + i}
                       type="button"
                       onClick={() => setHeroIdx(i)}
                       className={[
@@ -874,9 +1043,7 @@ export default function Page() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() =>
-                      setHeroIdx((x) => (x - 1 + HERO_IMAGES.length) % HERO_IMAGES.length)
-                    }
+                    onClick={() => setHeroIdx((x) => (x - 1 + HERO_IMAGES.length) % HERO_IMAGES.length)}
                     className="rounded-xl bg-white/15 px-3 py-2 text-white font-extrabold border border-white/20 backdrop-blur"
                   >
                     ‹
@@ -890,6 +1057,39 @@ export default function Page() {
                   </button>
                 </div>
               </div>
+
+              {/* mini thumbnails (aiuta se “non si vede”) */}
+              <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                {HERO_IMAGES.map((src, i) => {
+                  const isB = !!broken[i];
+                  return (
+                    <button
+                      key={src + "-thumb-" + i}
+                      type="button"
+                      onClick={() => setHeroIdx(i)}
+                      className={[
+                        "h-12 w-16 shrink-0 rounded-xl overflow-hidden border",
+                        i === heroIdx ? "border-white" : "border-white/30",
+                      ].join(" ")}
+                      title={src}
+                    >
+                      {!isB ? (
+                        <img
+                          src={src}
+                          alt={`thumb-${i}`}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                          onError={() => setBroken((m) => ({ ...m, [i]: true }))}
+                        />
+                      ) : (
+                        <div className="h-full w-full bg-black/40 text-white text-[10px] font-extrabold flex items-center justify-center px-1">
+                          {t.photoMissing}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -898,7 +1098,7 @@ export default function Page() {
       {/* CONTENT */}
       <section className="px-4 py-8 sm:py-10">
         <div className="mx-auto max-w-6xl grid gap-5 lg:grid-cols-3">
-          {/* COL SX (esperienze + date) */}
+          {/* COL SX */}
           <div className="lg:col-span-2 grid gap-5">
             {/* Date */}
             <Card
@@ -965,12 +1165,14 @@ export default function Page() {
               </div>
 
               {/* pills availability */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Pill ok={!availability.halfAMBlocked} label={`${t.exp_half_am} ${t.half_am_sub}`} />
-                <Pill ok={!availability.halfPMBlocked} label={`${t.exp_half_pm} ${t.half_pm_sub}`} />
-                <Pill ok={!availability.dayBlocked} label={`${t.exp_day} ${t.day_sub}`} />
-                <Pill ok={!availability.sunsetBlocked} label={`${t.exp_sunset} ${t.sunset_sub}`} />
-              </div>
+              {experience !== "overnight" && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Pill ok={!availability.halfAMBlocked} label={`${t.exp_half_am} ${t.half_am_sub}`} />
+                  <Pill ok={!availability.halfPMBlocked} label={`${t.exp_half_pm} ${t.half_pm_sub}`} />
+                  <Pill ok={!availability.dayBlocked} label={`${t.exp_day} ${t.day_sub}`} />
+                  <Pill ok={!availability.sunsetBlocked} label={`${t.exp_sunset} ${t.sunset_sub}`} />
+                </div>
+              )}
             </Card>
 
             {/* Esperienze */}
@@ -987,7 +1189,8 @@ export default function Page() {
                       : SEASON_PRICES[season].halfday;
 
                   const active = experience === exp.id;
-                  const disabled = exp.blocked && exp.id !== "overnight"; // overnight lo gestiamo a parte
+                  const disabled = exp.blocked && exp.id !== "overnight";
+
                   return (
                     <button
                       key={exp.id}
@@ -1002,12 +1205,8 @@ export default function Page() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="text-lg font-black text-slate-900">
-                            {exp.title}
-                          </div>
-                          <div className="mt-1 text-sm font-extrabold text-slate-700">
-                            {exp.sub}
-                          </div>
+                          <div className="text-lg font-black text-slate-900">{exp.title}</div>
+                          <div className="mt-1 text-sm font-extrabold text-slate-700">{exp.sub}</div>
                           <div className="mt-2 text-xs font-extrabold text-slate-600">
                             {disabled ? t.notAvailable : t.available}
                           </div>
@@ -1026,38 +1225,68 @@ export default function Page() {
 
               <div className="mt-4 rounded-xl border border-slate-200 bg-sky-50 px-4 py-3">
                 <div className="text-xs font-extrabold text-slate-600">{t.summary}</div>
-                <div className="mt-1 text-sm font-black text-slate-900">
-                  {selectedIntervalLabel}
-                </div>
+                <div className="mt-1 text-sm font-black text-slate-900">{selectedIntervalLabel}</div>
+              </div>
+            </Card>
+
+            {/* ✅ NUOVA CARD: RICHIESTA CLIENTE (spazio bianco a sinistra) */}
+            <Card title={t.requestTitle}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <div className="text-xs font-extrabold text-slate-600 mb-1">{t.clientName}</div>
+                  <input
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder={t.clientNamePh}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
+                  />
+                </label>
+
+                <div className="hidden sm:block" />
+                <label className="block sm:col-span-2">
+                  <div className="text-xs font-extrabold text-slate-600 mb-1">{t.clientNote}</div>
+                  <textarea
+                    value={clientNote}
+                    onChange={(e) => setClientNote(e.target.value)}
+                    placeholder={t.clientNotePh}
+                    rows={4}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
+                  />
+                </label>
               </div>
             </Card>
           </div>
 
-          {/* COL DX (spese fisse + extra + totale + bottoni) */}
+          {/* COL DX */}
           <div className="grid gap-5">
             {/* Spese fisse */}
             <Card title={t.fixedCosts}>
               <div className="space-y-3">
-                {FIXED_COSTS.map((c) => (
+                {fixedItems.map((c) => (
                   <div
                     key={c.id}
                     className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
                   >
-                    <div className="text-sm font-extrabold text-slate-800">
-                      {t[c.labelKey as keyof typeof t] as unknown as string}
-                    </div>
-                    <div className="text-sm font-black text-slate-900">
-                      {euro(c.price || 0)}
-                    </div>
+                    <div className="text-sm font-extrabold text-slate-800">{c.label}</div>
+                    <div className="text-sm font-black text-slate-900">{euro(c.price || 0)}</div>
                   </div>
                 ))}
+
+                {experience === "overnight" && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="text-sm font-black text-slate-900">{t.fuel_multiday_note_title}</div>
+                    <div className="mt-1 text-xs font-extrabold text-slate-700">
+                      {t.fuel_multiday_note_body.replace(
+                        "{x}",
+                        euro(FIXED_RULES.fuel_multiday_info_per_hour)
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
-                  <div className="text-sm font-extrabold text-slate-800">
-                    Totale spese fisse
-                  </div>
-                  <div className="text-sm font-black text-slate-900">
-                    {euro(fixedTotal)}
-                  </div>
+                  <div className="text-sm font-extrabold text-slate-800">Totale spese fisse</div>
+                  <div className="text-sm font-black text-slate-900">{euro(fixedTotal)}</div>
                 </div>
               </div>
             </Card>
@@ -1065,13 +1294,10 @@ export default function Page() {
             {/* Extra */}
             <Card title={t.extras}>
               <div className="space-y-4">
-                {/* SeaBob qty */}
                 <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-black text-slate-900">
-                        {t.extra_seabob}
-                      </div>
+                      <div className="text-sm font-black text-slate-900">{t.extra_seabob}</div>
                       <div className="text-xs font-extrabold text-slate-600">
                         {euro(EXTRA_PRICES.seabob)} / cad.
                       </div>
@@ -1080,13 +1306,10 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* Teli mare qty */}
                 <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-black text-slate-900">
-                        {t.extra_towel}
-                      </div>
+                      <div className="text-sm font-black text-slate-900">{t.extra_towel}</div>
                       <div className="text-xs font-extrabold text-slate-600">
                         {euro(EXTRA_PRICES.towel)} / telo
                       </div>
@@ -1095,12 +1318,9 @@ export default function Page() {
                   </div>
                 </div>
 
-                {/* Drinks pack */}
                 <label className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 cursor-pointer">
                   <div>
-                    <div className="text-sm font-black text-slate-900">
-                      {t.extra_drinks}
-                    </div>
+                    <div className="text-sm font-black text-slate-900">{t.extra_drinks}</div>
                     <div className="text-xs font-extrabold text-slate-600">
                       {euro(EXTRA_PRICES.drinks_pack)} totale
                     </div>
@@ -1113,12 +1333,9 @@ export default function Page() {
                   />
                 </label>
 
-                {/* Catering per persona */}
                 <label className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 cursor-pointer">
                   <div>
-                    <div className="text-sm font-black text-slate-900">
-                      {t.extra_catering}
-                    </div>
+                    <div className="text-sm font-black text-slate-900">{t.extra_catering}</div>
                     <div className="text-xs font-extrabold text-slate-600">
                       {euro(EXTRA_PRICES.catering_pp)} / persona (x{people})
                     </div>
@@ -1132,19 +1349,12 @@ export default function Page() {
                 </label>
 
                 <div className="flex items-center justify-between rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
-                  <div className="text-sm font-extrabold text-slate-800">
-                    Totale extra
-                  </div>
-                  <div className="text-sm font-black text-slate-900">
-                    {euro(extrasTotal)}
-                  </div>
+                  <div className="text-sm font-extrabold text-slate-800">Totale extra</div>
+                  <div className="text-sm font-black text-slate-900">{euro(extrasTotal)}</div>
                 </div>
 
-                {/* Inclusi gratis */}
                 <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-                  <div className="text-sm font-black text-slate-900">
-                    {t.includedFree}
-                  </div>
+                  <div className="text-sm font-black text-slate-900">{t.includedFree}</div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="rounded-full bg-sky-50 border border-sky-100 px-3 py-1 text-xs font-extrabold text-slate-800">
                       ✅ {t.free_sup}
@@ -1187,15 +1397,12 @@ export default function Page() {
                 </div>
 
                 <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <div className="text-xs font-extrabold text-slate-600">
-                    {t.summary}
-                  </div>
+                  <div className="text-xs font-extrabold text-slate-600">{t.summary}</div>
                   <pre className="mt-2 whitespace-pre-wrap text-xs font-extrabold text-slate-800 leading-relaxed">
                     {summaryText}
                   </pre>
                 </div>
 
-                {/* Bottoni */}
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <a
                     href={whatsappHref}
@@ -1214,7 +1421,7 @@ export default function Page() {
                 </div>
 
                 <div className="mt-3 text-xs font-extrabold text-white/90 bg-black/20 border border-white/20 rounded-xl px-4 py-3">
-                  Nota: inserisci i prezzi delle spese fisse in CONFIG (FIXED_COSTS) e il link pagamento in PAYMENT_URL.
+                  Nota: per multi-day il carburante è solo informativo (15€/ora motori) e non è incluso nel totale.
                 </div>
               </div>
             </Card>
@@ -1222,7 +1429,6 @@ export default function Page() {
         </div>
       </section>
 
-      {/* footer mini */}
       <footer className="px-4 pb-10">
         <div className="mx-auto max-w-6xl text-center text-xs font-extrabold text-white/90">
           © Blu Horizonte · {TZ}
