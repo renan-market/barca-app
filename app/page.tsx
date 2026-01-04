@@ -964,50 +964,52 @@ export default function Page() {
   );
 
   const availability = useMemo(() => {
+
   const slot = SLOT;
 
-  // ✅ Considera "all day" SOLO se esiste un intervallo che copre tutta la giornata
-  // (es: [0,1440] o simile). Così closed[] non ti colora tutto rosso per errore.
+  // vero all-day solo se l'intervallo copre tutta la giornata
   const allDayBlocked = intervals.some(([s, e]) => s <= 0 && e >= 24 * 60);
 
-console.log("AVAIL CHECK intervals:", intervals);
-console.log("AVAIL CHECK allDayBlocked:", allDayBlocked);
-
-
   const dayBlocked =
-  allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
-
+    allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
 
   const halfAMBlocked =
-    allDayBlocked ||
-    (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
+    allDayBlocked || (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
 
   const halfPMBlocked =
-    allDayBlocked ||
-    (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
+    allDayBlocked || (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
 
-  // ✅ Sunset NON dipende dal Day: solo overlap sunset (o vero all-day)
   const sunsetBlocked =
-    allDayBlocked ||
-    (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
+    allDayBlocked || (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
 
-  // ✅ Overnight separato (range): blocca se QUALSIASI data nel range è in closedSet
+  // 🔒 Overnight:
+  // - BLOCCATO se fuori stagione (prezzo base = 0)
+  // - BLOCCATO se QUALSIASI giorno del range è chiuso nel calendario
   let overnightBlocked = false;
-  try {
-    if (dateFrom) {
-      // if dateTo invalid, fallback to dateFrom only
-      const start = new Date(dateFrom + "T00:00:00");
-      const end = dateTo && compareISO(dateTo, dateFrom) >= 0 ? new Date(dateTo + "T00:00:00") : start;
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const iso = d.toISOString().slice(0, 10);
-        if (closedSet.has(iso)) {
-          overnightBlocked = true;
-          break;
+
+  const overnightBasePrice = priceForExperience2026("overnight", dateFrom);
+  if (!overnightBasePrice) {
+    overnightBlocked = true;
+  } else {
+    try {
+      if (dateFrom) {
+        const start = new Date(dateFrom + "T00:00:00");
+        const end =
+          dateTo && compareISO(dateTo, dateFrom) >= 0
+            ? new Date(dateTo + "T00:00:00")
+            : start;
+
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const iso = d.toISOString().slice(0, 10);
+          if (closedSet.has(iso)) {
+            overnightBlocked = true;
+            break;
+          }
         }
       }
+    } catch {
+      overnightBlocked = true;
     }
-  } catch (e) {
-    overnightBlocked = false;
   }
 
   return {
@@ -1018,6 +1020,7 @@ console.log("AVAIL CHECK allDayBlocked:", allDayBlocked);
     overnightBlocked,
   };
 }, [intervals, closedSet, dateFrom, dateTo]);
+
 
 
 
@@ -1824,3 +1827,4 @@ console.log("AVAIL CHECK allDayBlocked:", allDayBlocked);
     </main>
   );
 }
+
