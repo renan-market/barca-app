@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 
 type Lang = "es" | "en" | "it" | "fr" | "de" | "ru";
 type ExperienceId = "half_am" | "half_pm" | "day" | "sunset" | "overnight";
@@ -51,26 +51,48 @@ const SLOT: Record<ExperienceId, Interval | null> = {
   overnight: null, // multi-day
 };
 
-type Season = "low" | "mid" | "high";
-const SEASON_PRICES: Record<
-  Season,
-  { day: number; halfday: number; sunset: number; night: number }
-> = {
-  low: { day: 650, halfday: 450, sunset: 420, night: 350 },
-  mid: { day: 850, halfday: 600, sunset: 520, night: 450 },
-  high: { day: 1100, halfday: 780, sunset: 650, night: 600 },
+/* =========================
+   PREZZI 2026 (UFFICIALI)
+   ========================= */
+
+type MonthKey = "04" | "05" | "06" | "07" | "08" | "09" | "10";
+type PriceKind = "day" | "half" | "sunset" | "overnight_week";
+
+const PRICES_2026: Record<PriceKind, Record<MonthKey, number>> = {
+  day: { "04": 380, "05": 460, "06": 600, "07": 700, "08": 850, "09": 380, "10": 460 },
+  half: { "04": 280, "05": 320, "06": 420, "07": 500, "08": 570, "09": 320, "10": 280 },
+  sunset: { "04": 260, "05": 290, "06": 370, "07": 410, "08": 470, "09": 260, "10": 290 },
+  overnight_week: { "04": 4500, "05": 5000, "06": 5500, "07": 6500, "08": 7500, "09": 4500, "10": 6000 },
 };
 
-// Mappa mesi → stagione
-function seasonFromDateISO(dateISO: string): Season {
-  const m = Number(dateISO.slice(5, 7)); // 1..12
-  // Low: Nov–Mar, Mid: Apr–May & Oct, High: Jun–Sep
-  if (m === 11 || m === 12 || m === 1 || m === 2 || m === 3) return "low";
-  if (m === 4 || m === 5 || m === 10) return "mid";
-  return "high";
+function monthKeyFromDateISO(date: string): MonthKey | null {
+  if (!date) return null;
+
+  // accetta SOLO YYYY-MM-DD
+  const isoMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!isoMatch) return null;
+
+  const m = isoMatch[2];
+  return (["04", "05", "06", "07", "08", "09", "10"].includes(m))
+    ? (m as MonthKey)
+    : null;
 }
 
-// Regole fisse ufficiali
+
+function priceForExperience2026(exp: ExperienceId, dateISO: string): number {
+  const mk = monthKeyFromDateISO(dateISO);
+  if (!mk) return 0;
+  if (exp === "day") return PRICES_2026.day[mk];
+  if (exp === "half_am" || exp === "half_pm") return PRICES_2026.half[mk];
+  if (exp === "sunset") return PRICES_2026.sunset[mk];
+  if (exp === "overnight") return PRICES_2026.overnight_week[mk];
+  return 0;
+}
+
+/* =========================
+   Regole fisse ufficiali
+   ========================= */
+
 const FIXED_RULES = {
   skipper_per_day: 170, // Overnight: 170€ AL GIORNO (moltiplica per giorni)
   fuel_halfday_day_sunset: 40, // Half/Day/Sunset: 40€ (da sommare)
@@ -86,7 +108,7 @@ const EXTRA_PRICES = {
   towel: 15, // per asciugamano
 };
 
-const WHATSAPP_NUMBER = "393398864884"; // 39 + 3398864884
+const WHATSAPP_NUMBER = "393398864884";
 const MAX_PEOPLE = 12;
 
 /* =========================
@@ -96,6 +118,11 @@ const MAX_PEOPLE = 12;
 const I18N: Record<
   Lang,
   {
+    brand?: string;
+    seasonLabel?: string;
+    per_week?: string;
+    fixed_total_label?: string;
+    multiday_footer_note?: string;
     langLabel: string;
     title: string;
     subtitle: string;
@@ -165,8 +192,13 @@ const I18N: Record<
   }
 > = {
   it: {
+    brand: "Blu Horizonte",
+    seasonLabel: "Stagione:",
+    per_week: "/settimana",
+    fixed_total_label: "Totale spese fisse",
+    multiday_footer_note: "Nota: per multi-day il carburante è solo informativo (15€/ora motori) e non è incluso nel totale.",
     langLabel: "Italiano",
-    title: "Lagoon 380 · Ibiza",
+    title: "Lagoon 38S2 · Ibiza",
     subtitle: "Esperienze private in catamarano",
     selectDate: "Seleziona data",
     loading: "Carico…",
@@ -223,11 +255,14 @@ const I18N: Record<
     stripeError: "Pagamento non disponibile: ",
     stripeStarting: "Apro Stripe…",
   },
-  // (le altre lingue restano identiche alla tua versione — per brevità non le riscrivo tutte qui)
-  // ✅ IMPORTANTE: se vuoi, te le reincollo complete anche per en/es/fr/de/ru in un unico blocco.
   es: {
+    brand: "Blu Horizonte",
+    seasonLabel: "Temporada:",
+    per_week: "/semana",
+    fixed_total_label: "Total costes fijos",
+    multiday_footer_note: "Nota: en multi-día el combustible es solo informativo (15€/hora motores) y no está incluido en el total.",
     langLabel: "Español",
-    title: "Lagoon 380 · Ibiza",
+    title: "Lagoon 38S2 · Ibiza",
     subtitle: "Experiencias privadas en catamarán",
     selectDate: "Elige fecha",
     loading: "Cargando…",
@@ -285,8 +320,13 @@ const I18N: Record<
     stripeStarting: "Abriendo Stripe…",
   },
   en: {
+    brand: "Blu Horizonte",
+    seasonLabel: "Season:",
+    per_week: "/week",
+    fixed_total_label: "Total fixed costs",
+    multiday_footer_note: "Note: for multi-day engine fuel is informational (15€/hour) and is NOT included in the total.",
     langLabel: "English",
-    title: "Lagoon 380 · Ibiza",
+    title: "Lagoon 38S2 · Ibiza",
     subtitle: "Private catamaran experiences",
     selectDate: "Select date",
     loading: "Loading…",
@@ -343,9 +383,225 @@ const I18N: Record<
     stripeError: "Payment unavailable: ",
     stripeStarting: "Opening Stripe…",
   },
-  fr: { ...(null as any) },
-  de: { ...(null as any) },
-  ru: { ...(null as any) },
+  fr: {
+    brand: "Blu Horizonte",
+    seasonLabel: "Saison:",
+    per_week: "/semaine",
+    fixed_total_label: "Total des coûts fixes",
+    multiday_footer_note: "Remarque : pour les séjours multi-jours, le carburant moteur est à titre indicatif (15€/heure) et n'est PAS inclus dans le total.",
+    langLabel: "Français",
+    title: "Lagoon 38S2 · Ibiza",
+    subtitle: "Expériences privées à bord d'un catamaran",
+    selectDate: "Sélectionnez une date",
+    loading: "Chargement…",
+    available: "Disponible",
+    notAvailable: "Indisponible",
+    experiences: "Expériences",
+    fixedCosts: "Coûts fixes (obligatoires)",
+    extras: "Extras (optionnels)",
+    includedFree: "Inclus gratuitement",
+    total: "Total",
+    bookWhatsapp: "Réserver sur WhatsApp",
+    payNow: "Payer maintenant",
+    people: "Personnes",
+    nights: "Nuits",
+    dateFrom: "De",
+    dateTo: "À",
+
+    exp_half_am: "Demi-journée (Matin)",
+    exp_half_pm: "Demi-journée (Après-midi)",
+    exp_day: "Day Charter",
+    exp_sunset: "Coucher de soleil",
+    exp_overnight: "Nuitée",
+
+    half_am_sub: "10:00 – 14:00",
+    half_pm_sub: "14:30 – 18:30",
+    day_sub: "10:00 – 18:00",
+    sunset_sub: "19:00 – 21:30",
+    overnight_sub: "Multi-jours (plage de dates)",
+
+    fixed_skipper: "Skipper",
+    fixed_fuel: "Carburant",
+    fixed_cleaning: "Nettoyage",
+
+    extra_seabob: "SeaBob",
+    extra_catering: "Restauration",
+    extra_drinks: "Pack boissons (12 personnes)",
+    extra_towel: "Serviettes de plage",
+
+    free_sup: "SUP / Paddle",
+    free_snorkel: "Masque + tuba",
+    free_dinghy: "Annexe",
+
+    season_low: "Basse",
+    season_mid: "Moyenne",
+    season_high: "Haute",
+
+    summary: "Récapitulatif",
+
+    fuel_multiday_note_title: "Note carburant (Multi-jours)",
+    fuel_multiday_note_body: "Carburant moteur : {x} / heure (à titre indicatif – NON inclus dans le total).",
+    days: "Jours",
+
+    requestTitle: "Demande client",
+    clientName: "Nom du client",
+    clientNamePh: "Ex. Marco Rossi",
+    clientNote: "Commentaire / Question",
+    clientNotePh: "Ex. point de rencontre, demandes, etc…",
+
+    photosTitle: "Photos",
+    photosHint: "Si vous ne voyez pas les photos : vérifiez qu'elles existent dans /public avec les mêmes noms.",
+    photoMissing: "Photo manquante",
+
+    stripeError: "Paiement indisponible : ",
+    stripeStarting: "Ouverture de Stripe…",
+  },
+  de: {
+    brand: "Blu Horizonte",
+    seasonLabel: "Saison:",
+    per_week: "/Woche",
+    fixed_total_label: "Gesamte feste Kosten",
+    multiday_footer_note: "Hinweis: Bei Mehrtagesfahrten dient der Motor-Kraftstoff als Richtwert (15€/Stunde) und ist NICHT im Gesamtpreis enthalten.",
+    langLabel: "Deutsch",
+    title: "Lagoon 38S2 · Ibiza",
+    subtitle: "Private Katamaran-Erlebnisse",
+    selectDate: "Datum wählen",
+    loading: "Lädt…",
+    available: "Verfügbar",
+    notAvailable: "Nicht verfügbar",
+    experiences: "Erlebnisse",
+    fixedCosts: "Fixkosten (verpflichtend)",
+    extras: "Extras (optional)",
+    includedFree: "Inklusive",
+    total: "Gesamt",
+    bookWhatsapp: "Per WhatsApp buchen",
+    payNow: "Jetzt bezahlen",
+    people: "Personen",
+    nights: "Nächte",
+    dateFrom: "Von",
+    dateTo: "Bis",
+
+    exp_half_am: "Halber Tag (Vormittag)",
+    exp_half_pm: "Halber Tag (Nachmittag)",
+    exp_day: "Day Charter",
+    exp_sunset: "Sunset",
+    exp_overnight: "Übernachtung",
+
+    half_am_sub: "10:00 – 14:00",
+    half_pm_sub: "14:30 – 18:30",
+    day_sub: "10:00 – 18:00",
+    sunset_sub: "19:00 – 21:30",
+    overnight_sub: "Mehrere Tage (Datumsbereich)",
+
+    fixed_skipper: "Skipper",
+    fixed_fuel: "Treibstoff",
+    fixed_cleaning: "Reinigung",
+
+    extra_seabob: "SeaBob",
+    extra_catering: "Catering",
+    extra_drinks: "Getränkepaket (12 Personen)",
+    extra_towel: "Strandtücher",
+
+    free_sup: "SUP / Stand-up-Paddle",
+    free_snorkel: "Maske + Schnorchel",
+    free_dinghy: "Beiboot",
+
+    season_low: "Niedrig",
+    season_mid: "Mittel",
+    season_high: "Hoch",
+
+    summary: "Zusammenfassung",
+
+    fuel_multiday_note_title: "Kraftstoff-Hinweis (Mehrere Tage)",
+    fuel_multiday_note_body: "Motor-Kraftstoff: {x} / Stunde (nur zur Information – NICHT im Gesamtpreis enthalten).",
+    days: "Tage",
+
+    requestTitle: "Kundenanfrage",
+    clientName: "Kundenname",
+    clientNamePh: "z. B. Marco Rossi",
+    clientNote: "Kommentar / Frage",
+    clientNotePh: "z. B. Treffpunkt, Anfragen, etc…",
+
+    photosTitle: "Fotos",
+    photosHint: "Wenn Sie die Fotos nicht sehen: prüfen Sie, ob sie im Ordner /public mit denselben Namen vorhanden sind.",
+    photoMissing: "Foto fehlt",
+
+    stripeError: "Zahlung nicht verfügbar: ",
+    stripeStarting: "Stripe wird geöffnet…",
+  },
+  ru: {
+    brand: "Blu Horizonte",
+    seasonLabel: "Сезон:",
+    per_week: "/неделя",
+    fixed_total_label: "Итого фиксированные расходы",
+    multiday_footer_note: "Примечание: для многодневных поездок топливо для двигателей указано ориентировочно (15€/ч) и НЕ включено в общую сумму.",
+    langLabel: "Русский",
+    title: "Lagoon 38S2 · Ibiza",
+    subtitle: "Частные прогулки на катамаране",
+    selectDate: "Выберите дату",
+    loading: "Загрузка…",
+    available: "Доступно",
+    notAvailable: "Недоступно",
+    experiences: "Программы",
+    fixedCosts: "Фиксированные расходы (обязательно)",
+    extras: "Опции (по желанию)",
+    includedFree: "Включено бесплатно",
+    total: "Итого",
+    bookWhatsapp: "Забронировать через WhatsApp",
+    payNow: "Оплатить сейчас",
+    people: "Человек",
+    nights: "Ночи",
+    dateFrom: "От",
+    dateTo: "До",
+
+    exp_half_am: "Полдня (утро)",
+    exp_half_pm: "Полдня (вечер)",
+    exp_day: "Дневной чартер",
+    exp_sunset: "Закат",
+    exp_overnight: "Ночёвка",
+
+    half_am_sub: "10:00 – 14:00",
+    half_pm_sub: "14:30 – 18:30",
+    day_sub: "10:00 – 18:00",
+    sunset_sub: "19:00 – 21:30",
+    overnight_sub: "Несколько дней (диапазон дат)",
+
+    fixed_skipper: "Скиппер",
+    fixed_fuel: "Топливо",
+    fixed_cleaning: "Уборка",
+
+    extra_seabob: "SeaBob",
+    extra_catering: "Кейтеринг",
+    extra_drinks: "Набор напитков (12 человек)",
+    extra_towel: "Пляжные полотенца",
+
+    free_sup: "SUP / Паддлборд",
+    free_snorkel: "Маска + трубка для снорклинга",
+    free_dinghy: "Лодка",
+
+    season_low: "Низкий",
+    season_mid: "Средний",
+    season_high: "Высокий",
+
+    summary: "Итог",
+
+    fuel_multiday_note_title: "Примечание по топливу (многодневные)",
+    fuel_multiday_note_body: "Топливо для двигателей: {x} / час (только для информации – НЕ включено в итог).",
+    days: "Дни",
+
+    requestTitle: "Запрос клиента",
+    clientName: "Имя клиента",
+    clientNamePh: "напр. Marco Rossi",
+    clientNote: "Комментарий / Вопрос",
+    clientNotePh: "напр. место встречи, пожелания и т. п.",
+
+    photosTitle: "Фотографии",
+    photosHint: "Если вы не видите фотографии: проверьте, что они есть в папке /public с теми же именами.",
+    photoMissing: "Фото не найдено",
+
+    stripeError: "Платёж недоступен: ",
+    stripeStarting: "Открываю Stripe…",
+  },
 };
 
 /* =========================
@@ -367,6 +623,16 @@ function todayInTz(tz: string) {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+// ✅ se oggi è fuori Apr–Ott → default al prossimo 01 Aprile (così vedi i prezzi giusti subito)
+function defaultBookingDateISO(tz: string) {
+  const today = todayInTz(tz); // YYYY-MM-DD
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  if (m >= 4 && m <= 10) return today;
+  if (m < 4) return `${y}-04-01`;
+  return `${y + 1}-04-01`;
 }
 
 function compareISO(a: string, b: string): number {
@@ -401,6 +667,24 @@ function daysBetweenISO(fromISO: string, toISO: string) {
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   return Math.max(1, days || 0);
 }
+
+/* =========================
+   (Solo label estetica)
+   ========================= */
+
+type Season = "low" | "mid" | "high";
+function seasonFromDateISO(dateISO: string): Season {
+  const m = Number(dateISO.slice(5, 7)); // 1..12
+  // Regole finali:
+  // low: Apr, May, Oct
+  // mid: Jun, Sep
+  // high: Jul, Aug
+  if (m === 4 || m === 5 || m === 10) return "low";
+  if (m === 6 || m === 9) return "mid";
+  return "high";
+}
+
+
 
 /* =========================
    UI COMPONENTS (stessa UI)
@@ -481,6 +765,38 @@ function Qty({
 
 export default function Page() {
   const [lang, setLang] = useState<Lang>("it");
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const langButtonRef = useRef<HTMLButtonElement | null>(null);
+  const langMenuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (!langMenuOpen) return;
+
+      const path = (e.composedPath?.() ?? []) as EventTarget[];
+
+      const inBtn =
+        !!langButtonRef.current && path.includes(langButtonRef.current);
+      const inMenu =
+        !!langMenuRef.current && path.includes(langMenuRef.current);
+
+      if (!inBtn && !inMenu) setLangMenuOpen(false);
+    }
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setLangMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [langMenuOpen]);
+
+
   const t = I18N[lang] ?? I18N.it;
 
   // customer fields
@@ -499,9 +815,11 @@ export default function Page() {
   }, []);
 
   // date / range
-  const [selectedDate, setSelectedDate] = useState<string>(() => todayInTz(TZ));
-  const [dateFrom, setDateFrom] = useState<string>(() => todayInTz(TZ));
-  const [dateTo, setDateTo] = useState<string>(() => todayInTz(TZ));
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    defaultBookingDateISO(TZ)
+  );
+  const [dateFrom, setDateFrom] = useState<string>(() => defaultBookingDateISO(TZ));
+  const [dateTo, setDateTo] = useState<string>(() => defaultBookingDateISO(TZ));
 
   // experience
   const [experience, setExperience] = useState<ExperienceId>("half_am");
@@ -523,8 +841,12 @@ export default function Page() {
   const [payLoading, setPayLoading] = useState(false);
   const [payError, setPayError] = useState<string>("");
 
-  // season (auto)
-  const season = useMemo(() => seasonFromDateISO(selectedDate), [selectedDate]);
+  // season (solo label)
+  const season = useMemo(
+  () => seasonFromDateISO(experience === "overnight" ? (dateFrom || selectedDate) : selectedDate),
+  [experience, dateFrom, selectedDate]
+);
+
   const seasonLabel = useMemo(() => {
     if (season === "low") return t.season_low;
     if (season === "mid") return t.season_mid;
@@ -538,19 +860,20 @@ export default function Page() {
     return daysBetweenISO(dateFrom, dateTo);
   }, [experience, dateFrom, dateTo]);
 
-  // base price
+  // ✅ base price (PREZZI 2026)
   const basePrice = useMemo(() => {
-    const p = SEASON_PRICES[season];
-    if (experience === "day") return p.day;
-    if (experience === "half_am" || experience === "half_pm") return p.halfday;
-    if (experience === "sunset") return p.sunset;
-    if (experience === "overnight") {
-      const nights =
-        compareISO(dateTo, dateFrom) <= 0 ? 1 : daysBetweenISO(dateFrom, dateTo);
-      return p.night * nights;
+    if (experience !== "overnight") {
+      return priceForExperience2026(experience, selectedDate);
     }
-    return 0;
-  }, [experience, season, dateFrom, dateTo]);
+
+    // Overnight: prezzo settimanale * settimane (ceil)
+    const weekPrice = priceForExperience2026("overnight", dateFrom);
+    if (!weekPrice) return 0;
+
+    const nights = compareISO(dateTo, dateFrom) <= 0 ? 1 : daysBetweenISO(dateFrom, dateTo);
+    const weeks = Math.max(1, Math.ceil(nights / 7));
+    return weekPrice * weeks;
+  }, [experience, selectedDate, dateFrom, dateTo]);
 
   // fixed items (official rules)
   const fixedItems = useMemo(() => {
@@ -594,21 +917,23 @@ export default function Page() {
     [basePrice, fixedTotal, extrasTotal]
   );
 
-  // availability fetch (single day only)
+  // availability fetch (fetch closed[] and busy for the relevant date(s))
   useEffect(() => {
     let alive = true;
 
     async function load() {
-      if (experience === "overnight") {
-        setApi(null);
-        return;
-      }
       setLoadingAvail(true);
       try {
-        const res = await fetch(
-          `/api/availability?from=${selectedDate}&to=${selectedDate}`,
-          { cache: "no-store" }
-        );
+        // For overnight we need the full range (dateFrom..dateTo) to detect closed days;
+        // otherwise fetch the single selectedDate for slot experiences.
+        const fromParam =
+          experience === "overnight" && dateFrom ? encodeURIComponent(dateFrom) : encodeURIComponent(selectedDate);
+        const toParam =
+          experience === "overnight" && dateFrom
+            ? encodeURIComponent(dateTo && compareISO(dateTo, dateFrom) >= 0 ? dateTo : dateFrom)
+            : encodeURIComponent(selectedDate);
+
+        const res = await fetch(`/api/availability?from=${fromParam}&to=${toParam}`, { cache: "no-store" });
         const data = (await res.json()) as AvailabilityResponse;
         if (alive) setApi(data);
       } catch {
@@ -622,12 +947,14 @@ export default function Page() {
     return () => {
       alive = false;
     };
-  }, [selectedDate, experience]);
+  }, [selectedDate, experience, dateFrom, dateTo]);
 
   const { closedSet, intervals } = useMemo(() => {
     const closedSet = new Set(api?.closed ?? []);
     const raw = api?.busy?.[selectedDate] ?? [];
     const intervals: Interval[] = raw.map((it) => [it[0], it[1]]);
+    console.log("AVAIL DEBUG", { selectedDate, closed: [...closedSet], raw, intervals });
+
     return { closedSet, intervals };
   }, [api, selectedDate]);
 
@@ -637,27 +964,62 @@ export default function Page() {
   );
 
   const availability = useMemo(() => {
-    const slot = SLOT;
-    const dayBlocked =
-      isClosedAllDay || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
-    const halfAMBlocked =
-      isClosedAllDay ||
-      (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
-    const halfPMBlocked =
-      isClosedAllDay ||
-      (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
-    const sunsetBlocked =
-      isClosedAllDay ||
-      (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
+  const slot = SLOT;
 
-    return {
-      dayBlocked,
-      halfAMBlocked,
-      halfPMBlocked,
-      sunsetBlocked,
-      overnightBlocked: isClosedAllDay,
-    };
-  }, [intervals, isClosedAllDay]);
+  // ✅ Considera "all day" SOLO se esiste un intervallo che copre tutta la giornata
+  // (es: [0,1440] o simile). Così closed[] non ti colora tutto rosso per errore.
+  const allDayBlocked = intervals.some(([s, e]) => s <= 0 && e >= 24 * 60);
+
+console.log("AVAIL CHECK intervals:", intervals);
+console.log("AVAIL CHECK allDayBlocked:", allDayBlocked);
+
+
+  const dayBlocked =
+  allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
+
+
+  const halfAMBlocked =
+    allDayBlocked ||
+    (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
+
+  const halfPMBlocked =
+    allDayBlocked ||
+    (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
+
+  // ✅ Sunset NON dipende dal Day: solo overlap sunset (o vero all-day)
+  const sunsetBlocked =
+    allDayBlocked ||
+    (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
+
+  // ✅ Overnight separato (range): blocca se QUALSIASI data nel range è in closedSet
+  let overnightBlocked = false;
+  try {
+    if (dateFrom) {
+      // if dateTo invalid, fallback to dateFrom only
+      const start = new Date(dateFrom + "T00:00:00");
+      const end = dateTo && compareISO(dateTo, dateFrom) >= 0 ? new Date(dateTo + "T00:00:00") : start;
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+        if (closedSet.has(iso)) {
+          overnightBlocked = true;
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    overnightBlocked = false;
+  }
+
+  return {
+    dayBlocked,
+    halfAMBlocked,
+    halfPMBlocked,
+    sunsetBlocked,
+    overnightBlocked,
+  };
+}, [intervals, closedSet, dateFrom, dateTo]);
+
+
 
   const expDefs = useMemo(() => {
     return [
@@ -753,24 +1115,48 @@ export default function Page() {
     return `https://wa.me/${WHATSAPP_NUMBER}?text=${encoded}`;
   }, [summaryText]);
 
-  const canPay = useMemo(() => {
-    // basic validation
-    if (people < 1 || people > MAX_PEOPLE) return false;
-    if (experience !== "overnight" && (availability as any)[`${experience}Blocked`]) return true; // we still allow pay? better block:
-    if (experience !== "overnight") {
-      if (
-        (experience === "half_am" && availability.halfAMBlocked) ||
-        (experience === "half_pm" && availability.halfPMBlocked) ||
-        (experience === "day" && availability.dayBlocked) ||
-        (experience === "sunset" && availability.sunsetBlocked)
-      )
-        return false;
+  // ✅ canPay stabile + motivo
+  const blockedReason = useMemo(() => {
+    if (payLoading) return "Pagamento in corso…";
+    if (people < 1 || people > MAX_PEOPLE) return "Numero persone non valido";
+    if (!(grandTotal > 0)) return "Totale non valido";
+
+    // Prezzi solo Apr–Ott
+    if (experience === "overnight") {
+      if (!monthKeyFromDateISO(dateFrom)) return "Prezzi Overnight disponibili solo Apr–Ott";
     } else {
-      // minimal range sanity
-      if (!dateFrom || !dateTo) return false;
+      if (!monthKeyFromDateISO(selectedDate)) return "Prezzi disponibili solo Apr–Ott";
     }
-    return true;
-  }, [people, experience, availability, dateFrom, dateTo]);
+
+    if (experience === "overnight") {
+      if (!dateFrom || !dateTo) return "Seleziona date valide";
+      if (compareISO(dateTo, dateFrom) < 0) return "Intervallo date non valido";
+      return "";
+    }
+
+    if (!selectedDate || selectedDate.length !== 10) return "Seleziona una data valida";
+
+    if (experience === "half_am" && availability.halfAMBlocked) return "Mezza giornata mattina non disponibile";
+    if (experience === "half_pm" && availability.halfPMBlocked) return "Mezza giornata pomeriggio non disponibile";
+    if (experience === "day" && availability.dayBlocked) return "Day charter non disponibile";
+    if (experience === "sunset" && availability.sunsetBlocked) return "Sunset non disponibile";
+
+    return "";
+  }, [
+    payLoading,
+    people,
+    grandTotal,
+    experience,
+    selectedDate,
+    dateFrom,
+    dateTo,
+    availability.halfAMBlocked,
+    availability.halfPMBlocked,
+    availability.dayBlocked,
+    availability.sunsetBlocked,
+  ]);
+
+  const canPay = blockedReason === "";
 
   async function handlePay() {
     setPayError("");
@@ -782,6 +1168,7 @@ export default function Page() {
         dateFrom,
         dateTo,
         people: Math.max(1, Math.min(MAX_PEOPLE, people)),
+        amount: grandTotal,
         extras: {
           seabobQty,
           towelQty,
@@ -790,7 +1177,6 @@ export default function Page() {
         },
         clientName: clientName.trim(),
         clientNote: clientNote.trim(),
-        // we also send a debug summary (not trusted for amount)
         summaryText,
       };
 
@@ -815,6 +1201,27 @@ export default function Page() {
     }
   }
 
+  // ✅ CLICK SEMPRE (anche se canPay false)
+  const onPayClick = async () => {
+    console.log("CLICK PAY", {
+      canPay,
+      blockedReason,
+      experience,
+      selectedDate,
+      dateFrom,
+      dateTo,
+      people,
+      grandTotal,
+    });
+
+    if (!canPay) {
+      setPayError(blockedReason || "Pagamento non disponibile");
+      return;
+    }
+
+    await handlePay();
+  };
+
   const currentHero = HERO_IMAGES[heroIdx] || HERO_IMAGES[0];
   const currentBroken = broken[heroIdx];
 
@@ -822,50 +1229,140 @@ export default function Page() {
     <main className="min-h-screen bg-gradient-to-b from-sky-600 via-sky-500 to-sky-200">
       {/* HERO */}
       <section className="relative">
+
+
         <div className="relative h-[420px] sm:h-[520px] overflow-hidden bg-slate-900">
-          {!currentBroken ? (
+                   {!currentBroken ? (
             <img
               src={currentHero}
               alt="hero"
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover pointer-events-none select-none"
               loading="eager"
               decoding="async"
               onError={() => setBroken((m) => ({ ...m, [heroIdx]: true }))}
             />
           ) : (
-            <div className="h-full w-full flex items-center justify-center text-white/90 font-extrabold">
+            <div className="h-full w-full flex items-center justify-center text-white/90 font-extrabold pointer-events-none select-none">
               {t.photoMissing}: {currentHero}
             </div>
           )}
 
-          <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/30 to-black/10" />
+          <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-black/55 via-black/30 to-black/10" />
 
-          <div className="absolute left-0 right-0 top-0 z-10 px-4 pt-4">
+                    <div className="absolute left-0 right-0 top-0 z-[9999] px-4 pt-4 pointer-events-auto">
             <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
               <div className="rounded-2xl bg-white/15 px-4 py-2 text-sm font-extrabold text-white backdrop-blur border border-white/20">
-                Blu Horizonte
+                {t.brand}
               </div>
 
-              <div className="rounded-2xl bg-white/15 backdrop-blur border border-white/20 px-3 py-2">
-                <select
-                  value={lang}
-                  onChange={(e) => setLang(e.target.value as Lang)}
-                  className="bg-transparent text-white font-extrabold outline-none"
-                  aria-label="language"
+              <div className="relative pointer-events-auto">
+                <button
+                  ref={langButtonRef}
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLangMenuOpen((s) => !s);
+                  }}
+                  aria-haspopup="true"
+                  aria-expanded={langMenuOpen}
+                  className="bg-transparent text-white font-extrabold outline-none flex items-center gap-2 px-3 py-2 pointer-events-auto cursor-pointer"
+
                 >
-                  <option value="es">🇪🇸 Español</option>
-                  <option value="en">🇬🇧 English</option>
-                  <option value="it">🇮🇹 Italiano</option>
-                  <option value="fr">🇫🇷 Français</option>
-                  <option value="de">🇩🇪 Deutsch</option>
-                  <option value="ru">🇷🇺 Русский</option>
-                </select>
+                  {lang === "es"
+                    ? "🇪🇸"
+                    : lang === "en"
+                    ? "🇬🇧"
+                    : lang === "it"
+                    ? "🇮🇹"
+                    : lang === "fr"
+                    ? "🇫🇷"
+                    : lang === "de"
+                    ? "🇩🇪"
+                    : "🇷🇺"}
+                  <span className="hidden sm:inline">
+                    {I18N[lang]?.langLabel ?? lang}
+                  </span>
+                </button>
+
+                {langMenuOpen && (
+                  <div
+                    ref={langMenuRef}
+                    className="absolute right-0 mt-2 w-44 rounded-xl bg-white text-slate-900 shadow-lg border border-slate-200 pointer-events-auto"
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50 cursor-pointer"
+
+                      onClick={() => {
+                        setLang("es");
+                        setLangMenuOpen(false);
+                      }}
+                    >
+                      🇪🇸 Español
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50"
+                      onClick={() => {
+                        setLang("en");
+                        setLangMenuOpen(false);
+                      }}
+                    >
+                      🇬🇧 English
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50"
+                      onClick={() => {
+                        setLang("it");
+                        setLangMenuOpen(false);
+                      }}
+                    >
+                      🇮🇹 Italiano
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50"
+                      onClick={() => {
+                        setLang("fr");
+                        setLangMenuOpen(false);
+                      }}
+                    >
+                      🇫🇷 Français
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50"
+                      onClick={() => {
+                        setLang("de");
+                        setLangMenuOpen(false);
+                      }}
+                    >
+                      🇩🇪 Deutsch
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-slate-50"
+                      onClick={() => {
+                        setLang("ru");
+                        setLangMenuOpen(false);
+                      }}
+                    >
+                      🇷🇺 Русский
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          <div className="absolute inset-0 z-10 flex items-end px-4 pb-8">
-            <div className="mx-auto w-full max-w-6xl">
+
+
+                    <div className="absolute inset-0 z-10 flex items-end px-4 pb-8 pointer-events-none">
+            <div className="mx-auto w-full max-w-6xl pointer-events-none">
+
               <div className="max-w-3xl">
                 <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-white drop-shadow-[0_2px_18px_rgba(0,0,0,0.55)]">
                   {t.title}
@@ -874,7 +1371,7 @@ export default function Page() {
                   {t.subtitle}
                 </p>
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-extrabold text-white backdrop-blur border border-white/20">
-                  Season: {seasonLabel}
+                  {t.seasonLabel} {seasonLabel}
                 </div>
               </div>
 
@@ -1035,48 +1532,71 @@ export default function Page() {
               <div className="grid gap-4 sm:grid-cols-2">
                 {expDefs.map((exp) => {
                   const price =
-                    exp.id === "day"
-                      ? SEASON_PRICES[season].day
-                      : exp.id === "sunset"
-                      ? SEASON_PRICES[season].sunset
-                      : exp.id === "overnight"
-                      ? SEASON_PRICES[season].night
-                      : SEASON_PRICES[season].halfday;
+                    exp.id === "overnight"
+                      ? priceForExperience2026("overnight", dateFrom || selectedDate)
+                      : priceForExperience2026(exp.id, selectedDate);
 
                   const active = experience === exp.id;
-                  const disabled = exp.blocked && exp.id !== "overnight";
+                  const disabled = exp.blocked;
 
                   return (
                     <button
                       key={exp.id}
                       type="button"
-                      onClick={() => setExperience(exp.id)}
+                      onClick={() => {
+                        if (exp.blocked) return;
+                        setExperience(exp.id);
+                      }}
                       disabled={disabled}
+                      aria-disabled={disabled}
                       className={[
-                        "text-left rounded-2xl border px-5 py-5 transition shadow-[0_14px_36px_rgba(0,0,0,0.10)]",
+                        "min-w-0 text-left rounded-2xl border px-5 py-5 transition shadow-[0_14px_36px_rgba(0,0,0,0.10)]",
                         "bg-white",
                         active ? "border-sky-500 ring-2 ring-sky-200" : "border-slate-200",
                         disabled ? "opacity-50 cursor-not-allowed" : "hover:shadow-[0_18px_44px_rgba(0,0,0,0.14)]",
                       ].join(" ")}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-lg font-black text-slate-900">{exp.title}</div>
-                          <div className="mt-1 text-sm font-extrabold text-slate-700">{exp.sub}</div>
+                        <div className="min-w-0">
+                          <div className="text-lg font-black text-slate-900 truncate">{exp.title}</div>
+                          <div className="mt-1 text-sm font-extrabold text-slate-700 truncate">{exp.sub}</div>
                           <div className="mt-2 text-xs font-extrabold text-slate-600">
                             {disabled ? t.notAvailable : t.available}
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-xs font-extrabold text-slate-600">Da</div>
-                          <div className="text-xl font-black text-slate-900">
-                            {exp.id === "overnight" ? `${euro(price)}/notte` : euro(price)}
-                          </div>
+                        <div className="text-right min-w-0 flex-shrink-0">
+                          <div className="text-xs font-extrabold text-slate-600">{t.dateFrom}</div>
+
+                          {exp.id === "overnight" ? (
+                            <div className="text-right">
+                              <div className="text-lg font-black text-slate-900 leading-tight break-words">
+                                {euro(price)}
+                              </div>
+                              <div className="text-xs font-extrabold text-slate-600">
+                                {t.per_week}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-xl font-black text-slate-900">
+                              {euro(price)}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </button>
                   );
                 })}
+
+                <div className="rounded-2xl border px-5 py-5 bg-white">
+                  <div className="text-lg font-black text-slate-900">Incluso nel pernottamento (gratis)</div>
+                  <ul className="mt-2 text-sm font-extrabold text-slate-700 list-disc pl-5 space-y-1">
+                    <li>Lenzuola</li>
+                    <li>Asciugamani</li>
+                    <li>Maschere + boccagli</li>
+                    <li>SUP / Paddle</li>
+                    <li>Dinghy</li>
+                  </ul>
+                </div>
               </div>
 
               <div className="mt-4 rounded-xl border border-slate-200 bg-sky-50 px-4 py-3">
@@ -1139,7 +1659,7 @@ export default function Page() {
                 )}
 
                 <div className="flex items-center justify-between rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
-                  <div className="text-sm font-extrabold text-slate-800">Totale spese fisse</div>
+                  <div className="text-sm font-extrabold text-slate-800">{t.fixed_total_label}</div>
                   <div className="text-sm font-black text-slate-900">{euro(fixedTotal)}</div>
                 </div>
               </div>
@@ -1271,21 +1791,24 @@ export default function Page() {
 
                   <button
                     type="button"
-                    onClick={handlePay}
-                    disabled={!canPay || payLoading}
+                    onClick={onPayClick}
+                    disabled={payLoading} // ✅ solo per evitare doppio click
                     className={[
                       "rounded-2xl px-4 py-4 text-center font-black shadow-[0_14px_36px_rgba(0,0,0,0.18)] transition",
                       !canPay || payLoading
                         ? "bg-slate-400 text-white/90 cursor-not-allowed"
-                        : "bg-sky-700 text-white hover:shadow-[0_18px_44px_rgba(0,0,0,0.22)]",
+                        : "bg-sky-700 text-white cursor-pointer hover:shadow-[0_18px_44px_rgba(0,0,0,0.22)]",
+
                     ].join(" ")}
+                    aria-disabled={!canPay || payLoading}
+                    title={!canPay ? blockedReason : ""}
                   >
                     {payLoading ? t.stripeStarting : t.payNow}
                   </button>
                 </div>
 
                 <div className="mt-3 text-xs font-extrabold text-white/90 bg-black/20 border border-white/20 rounded-xl px-4 py-3">
-                  Nota: per multi-day il carburante è solo informativo (15€/ora motori) e non è incluso nel totale.
+                  {t.multiday_footer_note}
                 </div>
               </div>
             </Card>
@@ -1295,7 +1818,7 @@ export default function Page() {
 
       <footer className="px-4 pb-10">
         <div className="mx-auto max-w-6xl text-center text-xs font-extrabold text-white/90">
-          © Blu Horizonte · {TZ}
+          © {t.brand} · {TZ}
         </div>
       </footer>
     </main>
