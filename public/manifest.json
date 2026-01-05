@@ -1,13 +1,14 @@
 {
+  "id": "/?app=bluhorizonte",
   "name": "BluHorizonte Booking",
   "short_name": "BluHorizonte",
   "description": "Prenotazioni catamarano - Blu Horizonte",
- "start_url": "/prenota",
+  "start_url": "/?pwa=4",
   "scope": "/",
-  "prefer_related_applications": false,
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0ea5e9",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon-192.png",
