@@ -1511,11 +1511,11 @@ export default function Page() {
                     min={1}
                     max={MAX_PEOPLE}
                     value={people}
-                    onChange={(e) =>
-                      setPeople(
-                        Math.max(1, Math.min(MAX_PEOPLE, Number(e.target.value || 1)))
-                      )
-                    }
+                    onChange={(e) => {
+                      const n = e.currentTarget.valueAsNumber;
+                      if (Number.isNaN(n)) return;
+                      setPeople(Math.max(1, Math.min(MAX_PEOPLE, n)));
+                    }}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
                   />
                 </label>
