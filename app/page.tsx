@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import { Sunrise, Sunset, Anchor, Moon, Check } from "lucide-react";
 
 type Lang = "es" | "en" | "it" | "fr" | "de" | "ru";
 type ExperienceId = "half_am" | "half_pm" | "day" | "sunset" | "overnight";
@@ -824,8 +825,15 @@ export default function Page() {
   // experience
   const [experience, setExperience] = useState<ExperienceId>("half_am");
 
-  // people (max 12)
-  const [people, setPeople] = useState<number>(2);
+  // people (max 12) — stable numeric state + free-typing string for mobile input
+  const [people, setPeople] = useState<number>(1);
+  const [peopleInput, setPeopleInput] = useState<string>(String(people));
+
+  // keep peopleInput in sync when people changes programmatically
+  useEffect(() => {
+    setPeopleInput(String(people));
+  }, [people]);
+
 
   // extras
   const [seabobQty, setSeabobQty] = useState<number>(0);
@@ -1058,6 +1066,47 @@ export default function Page() {
       },
     ];
   }, [t, availability]);
+
+  const experienceStyles: Record<ExperienceId, { base: string; normal: string; selected: string; icon: string }> = {
+    half_am: {
+      base: "w-full border rounded-2xl",
+      normal: "bg-white border-slate-200 text-slate-900",
+      selected: "bg-blue-200 border-blue-500 text-blue-900 ring-blue-200 ring-2 shadow-md",
+      icon: "text-blue-700",
+    },
+    half_pm: {
+      base: "w-full border rounded-2xl",
+      normal: "bg-white border-slate-200 text-slate-900",
+      selected: "bg-blue-200 border-blue-500 text-blue-900 ring-blue-200 ring-2 shadow-md",
+      icon: "text-blue-700",
+    },
+    day: {
+      base: "w-full border rounded-2xl",
+      normal: "bg-white border-slate-200 text-slate-900",
+      selected: "bg-rose-200 border-rose-400 text-rose-900 ring-rose-200 ring-2 shadow-md",
+      icon: "text-rose-700",
+    },
+    sunset: {
+      base: "w-full border rounded-2xl",
+      normal: "bg-white border-slate-200 text-slate-900",
+      selected: "bg-amber-200 border-amber-400 text-amber-900 ring-amber-200 ring-2 shadow-md",
+      icon: "text-amber-700",
+    },
+    overnight: {
+      base: "w-full border rounded-2xl",
+      normal: "bg-white border-slate-200 text-slate-900",
+      selected: "bg-green-200 border-green-400 text-green-900 ring-green-200 ring-2 shadow-md",
+      icon: "text-green-700",
+    },
+  };
+
+  const expIcon: Record<ExperienceId, React.ComponentType<any>> = {
+    half_am: Sunrise,
+    half_pm: Sunset,
+    day: Anchor,
+    sunset: Sunset,
+    overnight: Moon,
+  };
 
   const selectedIntervalLabel = useMemo(() => {
     const it = SLOT[experience];
@@ -1464,17 +1513,19 @@ export default function Page() {
             >
               <div className="grid gap-3 sm:grid-cols-2">
                 {experience !== "overnight" ? (
-                  <label className="block">
-                    <div className="text-xs font-extrabold text-slate-600 mb-1">
-                      {t.selectDate}
-                    </div>
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
-                    />
-                  </label>
+                  <>
+                    <label className="block">
+                      <div className="text-xs font-extrabold text-slate-600 mb-1">
+                        {t.selectDate}
+                      </div>
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
+                      />
+                    </label>
+                  </>
                 ) : (
                   <>
                     <label className="block">
@@ -1507,14 +1558,34 @@ export default function Page() {
                     {t.people} (max {MAX_PEOPLE})
                   </div>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     min={1}
                     max={MAX_PEOPLE}
-                    value={people}
+                    value={peopleInput}
                     onChange={(e) => {
-                      const n = e.currentTarget.valueAsNumber;
-                      if (Number.isNaN(n)) return;
-                      setPeople(Math.max(1, Math.min(MAX_PEOPLE, n)));
+                      const v = e.currentTarget.value;
+                      // Allow empty while the user clears the field, or only digits (no immediate clamping)
+                      if (v === "" || /^\d{0,2}$/.test(v)) {
+                        setPeopleInput(v);
+                      }
+                    }}
+                    onBlur={() => {
+                      let n = parseInt(peopleInput, 10);
+                      if (Number.isNaN(n) || n < 1) n = 1;
+                      if (n > MAX_PEOPLE) n = MAX_PEOPLE;
+                      setPeople(n);
+                      setPeopleInput(String(n));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        let n = parseInt(peopleInput, 10);
+                        if (Number.isNaN(n) || n < 1) n = 1;
+                        if (n > MAX_PEOPLE) n = MAX_PEOPLE;
+                        setPeople(n);
+                        setPeopleInput(String(n));
+                      }
                     }}
                     className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
                   />
@@ -1539,8 +1610,15 @@ export default function Page() {
                       ? priceForExperience2026("overnight", dateFrom || selectedDate)
                       : priceForExperience2026(exp.id, selectedDate);
 
-                  const active = experience === exp.id;
+                  const isSelected = experience === exp.id;
                   const disabled = exp.blocked;
+
+                  const styles = experienceStyles[exp.id];
+                  const Icon = expIcon[exp.id];
+
+                  const baseClass = styles.base + " transition-all duration-200 relative";
+                  const normalClass = styles.normal;
+                  const selectedClass = styles.selected;
 
                   return (
                     <button
@@ -1552,47 +1630,46 @@ export default function Page() {
                       }}
                       disabled={disabled}
                       aria-disabled={disabled}
-                      className={[
-                        "min-w-0 text-left rounded-2xl border px-5 py-5 transition shadow-[0_14px_36px_rgba(0,0,0,0.10)]",
-                        "bg-white",
-                        active ? "border-sky-500 ring-2 ring-sky-200" : "border-slate-200",
-                        disabled ? "opacity-50 cursor-not-allowed" : "hover:shadow-[0_18px_44px_rgba(0,0,0,0.14)]",
-                      ].join(" ")}
+                      className={`${baseClass} ${isSelected ? selectedClass : normalClass} ${disabled ? "opacity-50 cursor-not-allowed" : "hover:shadow-lg"}`}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-lg font-black text-slate-900 truncate">{exp.title}</div>
-                          <div className="mt-1 text-sm font-extrabold text-slate-700 truncate">{exp.sub}</div>
-                          <div className="mt-2 text-xs font-extrabold text-slate-600">
-                            {disabled ? t.notAvailable : t.available}
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="shrink-0 flex items-center justify-center">
+                            <Icon className={["h-9 w-9", styles.icon, isSelected ? "" : ""].join(" ")} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className={"text-lg font-black truncate"}>{exp.title}</div>
+                            <div className={"mt-1 text-sm font-extrabold truncate"}>{exp.sub}</div>
+                            <div className={"mt-2 text-xs font-extrabold"}>{disabled ? t.notAvailable : t.available}</div>
                           </div>
                         </div>
+
                         <div className="text-right min-w-0 flex-shrink-0">
-                          <div className="text-xs font-extrabold text-slate-600">{t.dateFrom}</div>
+                          <div className="text-xs font-extrabold">{t.dateFrom}</div>
 
                           {exp.id === "overnight" ? (
                             <div className="text-right">
-                              <div className="text-lg font-black text-slate-900 leading-tight break-words">
-                                {euro(price)}
-                              </div>
-                              <div className="text-xs font-extrabold text-slate-600">
-                                {t.per_week}
-                              </div>
+                              <div className="text-lg font-black leading-tight break-words">{euro(price)}</div>
+                              <div className="text-xs font-extrabold">{t.per_week}</div>
                             </div>
                           ) : (
-                            <div className="text-xl font-black text-slate-900">
-                              {euro(price)}
-                            </div>
+                            <div className="text-xl font-black">{euro(price)}</div>
                           )}
                         </div>
                       </div>
+
+                      {isSelected ? (
+                        <div className="absolute right-4 top-4">
+                          <Check className="h-5 w-5 text-white bg-slate-900 rounded-full p-0.5 shadow" />
+                        </div>
+                      ) : null}
                     </button>
                   );
                 })}
 
-                <div className="rounded-2xl border px-5 py-5 bg-white">
-                  <div className="text-lg font-black text-slate-900">Incluso nel pernottamento (gratis)</div>
-                  <ul className="mt-2 text-sm font-extrabold text-slate-700 list-disc pl-5 space-y-1">
+                <div className="rounded-2xl border px-5 py-5 bg-violet-100 border-violet-200 text-violet-900">
+                  <div className="text-lg font-black">Incluso nel pernottamento (gratis)</div>
+                  <ul className="mt-2 text-sm font-extrabold list-disc pl-5 space-y-1">
                     <li>Lenzuola</li>
                     <li>Asciugamani</li>
                     <li>Maschere + boccagli</li>
@@ -1610,25 +1687,15 @@ export default function Page() {
 
             <Card title={t.requestTitle}>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <div className="text-xs font-extrabold text-slate-600 mb-1">{t.clientName}</div>
-                  <input
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    placeholder={t.clientNamePh}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
-                  />
-                </label>
-
-                <div className="hidden sm:block" />
                 <label className="block sm:col-span-2">
-                  <div className="text-xs font-extrabold text-slate-600 mb-1">{t.clientNote}</div>
+                  <div className="text-xs font-extrabold text-slate-600 mb-1">
+                    {t.clientNote}
+                  </div>
                   <textarea
+                    placeholder={"Allergie, preferenze, richieste speciali..."}
                     value={clientNote}
-                    onChange={(e) => setClientNote(e.target.value)}
-                    placeholder={t.clientNotePh}
-                    rows={4}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
+                    onChange={(e) => setClientNote(e.currentTarget.value)}
+                    className="w-full min-h-[160px] rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none resize-vertical"
                   />
                 </label>
               </div>
@@ -1729,16 +1796,16 @@ export default function Page() {
                   <div className="text-sm font-black text-slate-900">{euro(extrasTotal)}</div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-                  <div className="text-sm font-black text-slate-900">{t.includedFree}</div>
+                <div className="rounded-xl border px-4 py-4 bg-violet-100 border-violet-200 text-violet-900">
+                  <div className="text-sm font-black">{t.includedFree}</div>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <span className="rounded-full bg-sky-50 border border-sky-100 px-3 py-1 text-xs font-extrabold text-slate-800">
+                    <span className="rounded-full bg-violet-200 border border-violet-300 px-3 py-1 text-xs font-extrabold text-violet-900">
                       ✅ {t.free_sup}
                     </span>
-                    <span className="rounded-full bg-sky-50 border border-sky-100 px-3 py-1 text-xs font-extrabold text-slate-800">
+                    <span className="rounded-full bg-violet-200 border border-violet-300 px-3 py-1 text-xs font-extrabold text-violet-900">
                       ✅ {t.free_snorkel}
                     </span>
-                    <span className="rounded-full bg-sky-50 border border-sky-100 px-3 py-1 text-xs font-extrabold text-slate-800">
+                    <span className="rounded-full bg-violet-200 border border-violet-300 px-3 py-1 text-xs font-extrabold text-violet-900">
                       ✅ {t.free_dinghy}
                     </span>
                   </div>
@@ -1787,7 +1854,7 @@ export default function Page() {
                     href={whatsappHref}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-2xl bg-white text-sky-700 border border-white/60 px-4 py-4 text-center font-black shadow-[0_14px_36px_rgba(0,0,0,0.18)] hover:shadow-[0_18px_44px_rgba(0,0,0,0.22)] transition"
+                    className="rounded-2xl bg-green-500 hover:bg-green-600 text-white border border-white/20 px-4 py-4 text-center font-black shadow-[0_14px_36px_rgba(0,0,0,0.18)] transition"
                   >
                     {t.bookWhatsapp}
                   </a>

@@ -123,7 +123,12 @@ export default function ExtraPage() {
                     min={1}
                     max={12}
                     value={people}
-                    onChange={(e) => setPeople(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                    onChange={(e) => {
+  const n = e.currentTarget.valueAsNumber;
+  if (Number.isNaN(n)) return;
+  setPeople(Math.max(1, Math.min(12, n)));
+}}
+
                     className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
                   />
                   <div className="mt-2 text-xs text-gray-500">Max 12 (modificabile)</div>
