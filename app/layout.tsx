@@ -25,9 +25,13 @@ export default function RootLayout({
   return (
     <html lang="it">
       <head>
+        {/* Viewport for mobile PWAs */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         {/* PWA */}
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#0ea5e9" />
+      
+
 
         {/* Apple PWA */}
         <meta name="apple-mobile-web-app-capable" content="yes" />

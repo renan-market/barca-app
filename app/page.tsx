@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { Sunrise, Sunset, Anchor, Moon, Check } from "lucide-react";
+import { Sunrise, Sunset, Anchor, Moon } from "lucide-react";
 
 type Lang = "es" | "en" | "it" | "fr" | "de" | "ru";
 type ExperienceId = "half_am" | "half_pm" | "day" | "sunset" | "overnight";
@@ -1278,7 +1278,7 @@ export default function Page() {
   const currentBroken = broken[heroIdx];
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-sky-600 via-sky-500 to-sky-200">
+    <main className="w-full max-w-full overflow-x-hidden min-h-[100dvh] md:min-h-screen bg-gradient-to-b from-sky-600 via-sky-500 to-sky-200">
       {/* HERO */}
       <section className="relative">
 
@@ -1644,7 +1644,7 @@ export default function Page() {
                           </div>
                         </div>
 
-                        <div className="text-right min-w-0 flex-shrink-0">
+                        <div className="text-right min-w-0 flex-shrink-0 pr-12 md:pr-0">
                           <div className="text-xs font-extrabold">{t.dateFrom}</div>
 
                           {exp.id === "overnight" ? (
@@ -1657,12 +1657,6 @@ export default function Page() {
                           )}
                         </div>
                       </div>
-
-                      {isSelected ? (
-                        <div className="absolute right-4 top-4">
-                          <Check className="h-5 w-5 text-white bg-slate-900 rounded-full p-0.5 shadow" />
-                        </div>
-                      ) : null}
                     </button>
                   );
                 })}
