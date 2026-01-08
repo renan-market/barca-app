@@ -885,7 +885,6 @@ export default function Page() {
   // Sync date when switching experience
   useEffect(() => {
     if (experience === "overnight") {
-      // Passando A overnight: inizializza dateFrom/dateTo se mancano
       if (!dateFrom) {
         setDateFrom(selectedDate);
       }
@@ -895,8 +894,7 @@ export default function Page() {
         setDateTo(safeISO(fromDate, TZ));
       }
     } else {
-      // Passando DA overnight A altra esperienza: sync selectedDate con dateFrom
-      if (dateFrom && selectedDate !== dateFrom) {
+      if (dateFrom) {
         setSelectedDate(dateFrom);
       }
     }
@@ -1050,16 +1048,13 @@ export default function Page() {
     const raw = api?.busy?.[baseDateISO] ?? [];
     const intervals: Interval[] = raw.map((it) => [it[0], it[1]]);
     
-    // F) Debug migliorato
-    console.log("AVAIL DEBUG", {
+    console.log("CALENDAR DEBUG", {
       experience,
-      baseDateISO,
       selectedDate,
       dateFrom,
       dateTo,
+      baseDateISO,
       closed: [...closedSet],
-      raw,
-      intervals,
     });
 
     return { closedSet, intervals };
