@@ -1037,15 +1037,14 @@ export default function Page() {
   }, [selectedDate, experience, dateFrom, dateTo]);
 
   // A) Definisci UNA SOLA data di riferimento per availability
-  const baseDateISO = useMemo(
+  const activeDateISO = useMemo(
     () => (experience === "overnight" ? (dateFrom || selectedDate) : selectedDate),
     [experience, dateFrom, selectedDate]
   );
 
   const { closedSet, intervals } = useMemo(() => {
     const closedSet = new Set(api?.closed ?? []);
-    // F) Leggi busy intervals dalla data corretta (baseDateISO, non selectedDate fisso)
-    const raw = api?.busy?.[baseDateISO] ?? [];
+    const raw = api?.busy?.[activeDateISO] ?? [];
     const intervals: Interval[] = raw.map((it) => [it[0], it[1]]);
     
     console.log("CALENDAR DEBUG", {
@@ -1053,32 +1052,26 @@ export default function Page() {
       selectedDate,
       dateFrom,
       dateTo,
-      baseDateISO,
+      activeDateISO,
       closed: [...closedSet],
     });
 
     return { closedSet, intervals };
-  }, [api, baseDateISO, experience, selectedDate, dateFrom, dateTo]);
+  }, [api, activeDateISO, experience, selectedDate, dateFrom, dateTo]);
 
   const isClosedAllDay = useMemo(
-    () => closedSet.has(baseDateISO),
-    [closedSet, baseDateISO]
+    () => closedSet.has(activeDateISO),
+    [closedSet, activeDateISO]
   );
 
   const availability = useMemo(() => {
 
   const slot = SLOT;
 
-  // C) Verifica se baseDateISO è in un mese valido (Apr-Oct)
-  const isValidMonth = !!monthKeyFromDateISO(baseDateISO);
-
-  // C) Verifica se baseDateISO è nel closedSet (giorno chiuso dal calendario)
-  const isDayClosed = closedSet.has(baseDateISO);
-
-  // C) vero all-day solo se l'intervallo copre tutta la giornata [0, 1440] o s<=0 && e>=1440
+  const isValidMonth = !!monthKeyFromDateISO(activeDateISO);
+  const isDayClosed = closedSet.has(activeDateISO);
   const allDayBlocked = intervals.some(([s, e]) => (s <= 0 && e >= 24 * 60) || (s <= 0 && e >= 1440));
 
-  // C) Blocca tutte le esperienze se fuori stagione o giorno chiuso o all-day blocked
   const dayBlocked =
     !isValidMonth || isDayClosed || allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
 
@@ -1091,33 +1084,33 @@ export default function Page() {
   const sunsetBlocked =
     !isValidMonth || isDayClosed || allDayBlocked || (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
 
-  // 🔒 Overnight:
-  // - BLOCCATO se fuori stagione (prezzo base = 0)
-  // - BLOCCATO se QUALSIASI giorno del range è chiuso nel calendario
-  let overnightBlocked = false;
+  // Overnight: bloccato se activeDateISO chiuso O fuori stagione O range contiene giorni chiusi
+  let overnightBlocked = isDayClosed || !isValidMonth;
 
-  const overnightBasePrice = priceForExperience2026("overnight", dateFrom);
-  if (!overnightBasePrice) {
-    overnightBlocked = true;
-  } else {
-    try {
-      if (dateFrom) {
-        const start = new Date(dateFrom + "T00:00:00");
-        const end =
-          dateTo && compareISO(dateTo, dateFrom) >= 0
-            ? new Date(dateTo + "T00:00:00")
-            : start;
+  if (!overnightBlocked) {
+    const overnightBasePrice = priceForExperience2026("overnight", dateFrom || activeDateISO);
+    if (!overnightBasePrice) {
+      overnightBlocked = true;
+    } else {
+      try {
+        if (dateFrom) {
+          const start = new Date(dateFrom + "T00:00:00");
+          const end =
+            dateTo && compareISO(dateTo, dateFrom) >= 0
+              ? new Date(dateTo + "T00:00:00")
+              : start;
 
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const iso = safeISO(d, TZ);
-          if (closedSet.has(iso)) {
-            overnightBlocked = true;
-            break;
+          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const iso = safeISO(d, TZ);
+            if (closedSet.has(iso)) {
+              overnightBlocked = true;
+              break;
+            }
           }
         }
+      } catch {
+        overnightBlocked = true;
       }
-    } catch {
-      overnightBlocked = true;
     }
   }
 
@@ -1128,7 +1121,7 @@ export default function Page() {
     sunsetBlocked,
     overnightBlocked,
   };
-}, [intervals, closedSet, dateFrom, dateTo, baseDateISO]);
+}, [intervals, closedSet, dateFrom, dateTo, activeDateISO]);
 
 
 
@@ -1706,21 +1699,20 @@ export default function Page() {
             <Card title={t.experiences}>
               <div className="grid gap-4 sm:grid-cols-2">
                 {expDefs.map((exp) => {
-                  // Calculate dynamic price for overnight based on actual date range
                   let price = 0;
                   let overnightDaysDisplay = 0;
                   
                   if (exp.id === "overnight") {
-                    if (dateFrom && dateTo) {
-                      const mk = monthKeyFromDateISO(dateFrom);
-                      if (mk) {
-                        const actualDays = daysBetweenISO(dateFrom, dateTo);
-                        const duration = Math.max(2, Math.min(7, actualDays));
-                        price = OVERNIGHT_MULTIDAY[mk]?.[duration] || 0;
-                        overnightDaysDisplay = duration;
+                    const mk = monthKeyFromDateISO(dateFrom || activeDateISO);
+                    if (mk) {
+                      let daysRange = 2;
+                      if (dateFrom && dateTo && compareISO(dateTo, dateFrom) > 0) {
+                        daysRange = daysBetweenISO(dateFrom, dateTo);
                       }
+                      const daysClamped = Math.max(2, Math.min(7, daysRange));
+                      price = OVERNIGHT_MULTIDAY[mk]?.[daysClamped] || 0;
+                      overnightDaysDisplay = daysClamped;
                     }
-                    // else price = 0 (no dates selected)
                   } else {
                     price = priceForExperience2026(exp.id, selectedDate);
                   }
@@ -1766,7 +1758,7 @@ export default function Page() {
                             <div className="text-right">
                               <div className="text-lg font-black leading-tight break-words">{euro(price)}</div>
                               <div className="text-xs font-extrabold">
-                                {overnightDaysDisplay > 0 ? `${overnightDaysDisplay} ${t.days}` : t.per_week}
+                                {overnightDaysDisplay} {t.days}
                               </div>
                             </div>
                           ) : (
