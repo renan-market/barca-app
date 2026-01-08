@@ -1937,7 +1937,7 @@ export default function Page() {
 
                 <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
                   <div className="text-sm font-extrabold text-slate-600">{t.summary}</div>
-                  <pre className="mt-2 whitespace-pre-wrap text-sm font-extrabold text-slate-800 leading-relaxed">
+                  <pre className="mt-2 whitespace-pre-wrap text-sm font-extrabold text-slate-800 leading-relaxed font-sans">
                     {summaryText}
                   </pre>
                 </div>
