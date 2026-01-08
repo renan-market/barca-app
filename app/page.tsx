@@ -1051,23 +1051,27 @@ export default function Page() {
 
   const slot = SLOT;
 
+  // Verifica se selectedDate è in un mese valido (Apr-Oct)
+  const isValidMonth = !!monthKeyFromDateISO(selectedDate);
+
   // Verifica se selectedDate è nel closedSet (giorno chiuso dal calendario)
   const isDayClosed = closedSet.has(selectedDate);
 
   // vero all-day solo se l'intervallo copre tutta la giornata
   const allDayBlocked = intervals.some(([s, e]) => s <= 0 && e >= 24 * 60);
 
+  // Blocca tutte le esperienze se fuori stagione o giorno chiuso
   const dayBlocked =
-    isDayClosed || allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
+    !isValidMonth || isDayClosed || allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
 
   const halfAMBlocked =
-    isDayClosed || allDayBlocked || (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
+    !isValidMonth || isDayClosed || allDayBlocked || (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
 
   const halfPMBlocked =
-    isDayClosed || allDayBlocked || (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
+    !isValidMonth || isDayClosed || allDayBlocked || (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
 
   const sunsetBlocked =
-    isDayClosed || allDayBlocked || (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
+    !isValidMonth || isDayClosed || allDayBlocked || (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
 
   // 🔒 Overnight:
   // - BLOCCATO se fuori stagione (prezzo base = 0)
