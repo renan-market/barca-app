@@ -846,9 +846,6 @@ export default function Page() {
   // experience
   const [experience, setExperience] = useState<ExperienceId>("half_am");
 
-  // overnight duration (2-7 days)
-  const [overnightDuration, setOvernightDuration] = useState<number>(7);
-
   // people (max 12) — stable numeric state + free-typing string for mobile input
   const [people, setPeople] = useState<number>(1);
   const [peopleInput, setPeopleInput] = useState<string>(String(people));
@@ -1781,28 +1778,6 @@ export default function Page() {
                   </ul>
                 </div>
               </div>
-
-              {experience === "overnight" && (
-                <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <label className="block">
-                    <div className="text-xs font-extrabold text-slate-600 mb-2">
-                      {t.days} (2–7)
-                    </div>
-                    <select
-                      value={overnightDuration}
-                      onChange={(e) => setOvernightDuration(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
-                    >
-                      <option value={2}>2 {t.days}</option>
-                      <option value={3}>3 {t.days}</option>
-                      <option value={4}>4 {t.days}</option>
-                      <option value={5}>5 {t.days}</option>
-                      <option value={6}>6 {t.days}</option>
-                      <option value={7}>7 {t.days}</option>
-                    </select>
-                  </label>
-                </div>
-              )}
 
               <div className="mt-4 rounded-xl border border-slate-200 bg-sky-50 px-4 py-3">
                 <div className="text-xs font-extrabold text-slate-600">{t.summary}</div>
