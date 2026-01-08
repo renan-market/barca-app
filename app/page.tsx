@@ -637,6 +637,16 @@ function todayInTz(tz: string) {
   }).format(new Date());
 }
 
+// Safe ISO: ritorna YYYY-MM-DD nel fuso orario specificato senza shift UTC
+function safeISO(date: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 // ✅ se oggi è fuori Apr–Ott → default al prossimo 01 Aprile (così vedi i prezzi giusti subito)
 function defaultBookingDateISO(tz: string) {
   const today = todayInTz(tz); // YYYY-MM-DD
@@ -848,6 +858,44 @@ export default function Page() {
     setPeopleInput(String(people));
   }, [people]);
 
+  // Auto-update dateTo when overnight is selected and dateFrom changes
+  useEffect(() => {
+    if (experience !== "overnight") return;
+    if (!dateFrom) return;
+
+    // Assicura che dateTo sia almeno 2 giorni dopo dateFrom
+    if (!dateTo || compareISO(dateTo, dateFrom) < 0) {
+      // Imposta dateTo a dateFrom + 2 giorni (minimo per overnight)
+      const fromDate = new Date(dateFrom + "T00:00:00");
+      fromDate.setDate(fromDate.getDate() + 2);
+      const newDateTo = safeISO(fromDate, TZ);
+      setDateTo(newDateTo);
+    } else {
+      // Verifica che il range sia almeno 2 giorni
+      const days = daysBetweenISO(dateFrom, dateTo);
+      if (days < 2) {
+        const fromDate = new Date(dateFrom + "T00:00:00");
+        fromDate.setDate(fromDate.getDate() + 2);
+        const newDateTo = safeISO(fromDate, TZ);
+        setDateTo(newDateTo);
+      }
+    }
+  }, [experience, dateFrom, dateTo]);
+
+  // Force refresh when switching experience or changing dates in closed months
+  useEffect(() => {
+    // When switching from/to overnight, ensure dates are properly set
+    if (experience === "overnight") {
+      if (!dateFrom) {
+        setDateFrom(selectedDate);
+      }
+      if (!dateTo) {
+        const fromDate = new Date((dateFrom || selectedDate) + "T00:00:00");
+        fromDate.setDate(fromDate.getDate() + 2);
+        setDateTo(safeISO(fromDate, TZ));
+      }
+    }
+  }, [experience, selectedDate, dateFrom, dateTo]);
 
   // extras
   const [seabobQty, setSeabobQty] = useState<number>(0);
@@ -1003,20 +1051,23 @@ export default function Page() {
 
   const slot = SLOT;
 
+  // Verifica se selectedDate è nel closedSet (giorno chiuso dal calendario)
+  const isDayClosed = closedSet.has(selectedDate);
+
   // vero all-day solo se l'intervallo copre tutta la giornata
   const allDayBlocked = intervals.some(([s, e]) => s <= 0 && e >= 24 * 60);
 
   const dayBlocked =
-    allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
+    isDayClosed || allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
 
   const halfAMBlocked =
-    allDayBlocked || (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
+    isDayClosed || allDayBlocked || (slot.half_am ? isSlotBlocked(intervals, slot.half_am) : false);
 
   const halfPMBlocked =
-    allDayBlocked || (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
+    isDayClosed || allDayBlocked || (slot.half_pm ? isSlotBlocked(intervals, slot.half_pm) : false);
 
   const sunsetBlocked =
-    allDayBlocked || (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
+    isDayClosed || allDayBlocked || (slot.sunset ? isSlotBlocked(intervals, slot.sunset) : false);
 
   // 🔒 Overnight:
   // - BLOCCATO se fuori stagione (prezzo base = 0)
@@ -1036,7 +1087,7 @@ export default function Page() {
             : start;
 
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const iso = d.toISOString().slice(0, 10);
+          const iso = safeISO(d, TZ);
           if (closedSet.has(iso)) {
             overnightBlocked = true;
             break;
@@ -1055,7 +1106,7 @@ export default function Page() {
     sunsetBlocked,
     overnightBlocked,
   };
-}, [intervals, closedSet, dateFrom, dateTo]);
+}, [intervals, closedSet, dateFrom, dateTo, selectedDate]);
 
 
 
