@@ -1916,28 +1916,28 @@ export default function Page() {
             <Card
               title={t.total}
               right={
-                <div className="rounded-full bg-sky-600 px-4 py-2 text-white font-black shadow-[0_12px_30px_rgba(0,0,0,0.20)]">
+                <div className="rounded-full bg-sky-600 px-4 py-2 text-2xl text-white font-black shadow-[0_12px_30px_rgba(0,0,0,0.20)]">
                   {euro(grandTotal)}
                 </div>
               }
             >
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm font-extrabold text-slate-800">
+                <div className="flex items-center justify-between text-base font-extrabold text-slate-800">
                   <span>Base</span>
                   <span>{euro(basePrice)}</span>
                 </div>
-                <div className="flex items-center justify-between text-sm font-extrabold text-slate-800">
+                <div className="flex items-center justify-between text-base font-extrabold text-slate-800">
                   <span>{t.fixedCosts}</span>
                   <span>{euro(fixedTotal)}</span>
                 </div>
-                <div className="flex items-center justify-between text-sm font-extrabold text-slate-800">
+                <div className="flex items-center justify-between text-base font-extrabold text-slate-800">
                   <span>{t.extras}</span>
                   <span>{euro(extrasTotal)}</span>
                 </div>
 
                 <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <div className="text-xs font-extrabold text-slate-600">{t.summary}</div>
-                  <pre className="mt-2 whitespace-pre-wrap text-xs font-extrabold text-slate-800 leading-relaxed">
+                  <div className="text-sm font-extrabold text-slate-600">{t.summary}</div>
+                  <pre className="mt-2 whitespace-pre-wrap text-sm font-extrabold text-slate-800 leading-relaxed">
                     {summaryText}
                   </pre>
                 </div>
