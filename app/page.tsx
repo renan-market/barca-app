@@ -882,10 +882,10 @@ export default function Page() {
     }
   }, [experience, dateFrom, dateTo]);
 
-  // Force refresh when switching experience or changing dates in closed months
+  // Sync date when switching experience
   useEffect(() => {
-    // When switching from/to overnight, ensure dates are properly set
     if (experience === "overnight") {
+      // Passando A overnight: inizializza dateFrom/dateTo se mancano
       if (!dateFrom) {
         setDateFrom(selectedDate);
       }
@@ -894,8 +894,13 @@ export default function Page() {
         fromDate.setDate(fromDate.getDate() + 2);
         setDateTo(safeISO(fromDate, TZ));
       }
+    } else {
+      // Passando DA overnight A altra esperienza: sync selectedDate con dateFrom
+      if (dateFrom && selectedDate !== dateFrom) {
+        setSelectedDate(dateFrom);
+      }
     }
-  }, [experience, selectedDate, dateFrom, dateTo]);
+  }, [experience]);
 
   // extras
   const [seabobQty, setSeabobQty] = useState<number>(0);
@@ -1033,34 +1038,52 @@ export default function Page() {
     };
   }, [selectedDate, experience, dateFrom, dateTo]);
 
+  // A) Definisci UNA SOLA data di riferimento per availability
+  const baseDateISO = useMemo(
+    () => (experience === "overnight" ? (dateFrom || selectedDate) : selectedDate),
+    [experience, dateFrom, selectedDate]
+  );
+
   const { closedSet, intervals } = useMemo(() => {
     const closedSet = new Set(api?.closed ?? []);
-    const raw = api?.busy?.[selectedDate] ?? [];
+    // F) Leggi busy intervals dalla data corretta (baseDateISO, non selectedDate fisso)
+    const raw = api?.busy?.[baseDateISO] ?? [];
     const intervals: Interval[] = raw.map((it) => [it[0], it[1]]);
-    console.log("AVAIL DEBUG", { selectedDate, closed: [...closedSet], raw, intervals });
+    
+    // F) Debug migliorato
+    console.log("AVAIL DEBUG", {
+      experience,
+      baseDateISO,
+      selectedDate,
+      dateFrom,
+      dateTo,
+      closed: [...closedSet],
+      raw,
+      intervals,
+    });
 
     return { closedSet, intervals };
-  }, [api, selectedDate]);
+  }, [api, baseDateISO, experience, selectedDate, dateFrom, dateTo]);
 
   const isClosedAllDay = useMemo(
-    () => closedSet.has(selectedDate),
-    [closedSet, selectedDate]
+    () => closedSet.has(baseDateISO),
+    [closedSet, baseDateISO]
   );
 
   const availability = useMemo(() => {
 
   const slot = SLOT;
 
-  // Verifica se selectedDate è in un mese valido (Apr-Oct)
-  const isValidMonth = !!monthKeyFromDateISO(selectedDate);
+  // C) Verifica se baseDateISO è in un mese valido (Apr-Oct)
+  const isValidMonth = !!monthKeyFromDateISO(baseDateISO);
 
-  // Verifica se selectedDate è nel closedSet (giorno chiuso dal calendario)
-  const isDayClosed = closedSet.has(selectedDate);
+  // C) Verifica se baseDateISO è nel closedSet (giorno chiuso dal calendario)
+  const isDayClosed = closedSet.has(baseDateISO);
 
-  // vero all-day solo se l'intervallo copre tutta la giornata
-  const allDayBlocked = intervals.some(([s, e]) => s <= 0 && e >= 24 * 60);
+  // C) vero all-day solo se l'intervallo copre tutta la giornata [0, 1440] o s<=0 && e>=1440
+  const allDayBlocked = intervals.some(([s, e]) => (s <= 0 && e >= 24 * 60) || (s <= 0 && e >= 1440));
 
-  // Blocca tutte le esperienze se fuori stagione o giorno chiuso
+  // C) Blocca tutte le esperienze se fuori stagione o giorno chiuso o all-day blocked
   const dayBlocked =
     !isValidMonth || isDayClosed || allDayBlocked || (slot.day ? isSlotBlocked(intervals, slot.day) : false);
 
@@ -1110,7 +1133,7 @@ export default function Page() {
     sunsetBlocked,
     overnightBlocked,
   };
-}, [intervals, closedSet, dateFrom, dateTo, selectedDate]);
+}, [intervals, closedSet, dateFrom, dateTo, baseDateISO]);
 
 
 
