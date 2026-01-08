@@ -690,6 +690,14 @@ function daysBetweenISO(fromISO: string, toISO: string) {
   return Math.max(1, days || 0);
 }
 
+function formatDateShort(dateISO: string) {
+  // Converts YYYY-MM-DD to D-MMM-YYYY (e.g., "3-APR-2026")
+  const [year, month, day] = dateISO.split("-");
+  const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const monthAbbr = monthNames[parseInt(month, 10) - 1] || "???";
+  return `${parseInt(day, 10)}-${monthAbbr}-${year}`;
+}
+
 /* =========================
    (Solo label estetica)
    ========================= */
@@ -1204,10 +1212,10 @@ export default function Page() {
     if (experience === "overnight") {
       const nights =
         compareISO(dateTo, dateFrom) <= 0 ? 1 : daysBetweenISO(dateFrom, dateTo);
-      return `${dateFrom} → ${dateTo} • ${t.nights}: ${nights} • ${t.days}: ${overnightDays}`;
+      return `${formatDateShort(dateFrom)} → ${formatDateShort(dateTo)} • ${t.nights}: ${nights} • ${t.days}: ${overnightDays}`;
     }
     if (!it) return "";
-    return `${selectedDate} • ${formatInterval(it)} (${TZ})`;
+    return `${formatDateShort(selectedDate)} • ${formatInterval(it)} (${TZ})`;
   }, [experience, selectedDate, dateFrom, dateTo, t.nights, t.days, overnightDays]);
 
   // Summary for WhatsApp + Stripe metadata
