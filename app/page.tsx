@@ -60,10 +60,21 @@ type MonthKey = "04" | "05" | "06" | "07" | "08" | "09" | "10";
 type PriceKind = "day" | "half" | "sunset" | "overnight_week";
 
 const PRICES_2026: Record<PriceKind, Record<MonthKey, number>> = {
-  day: { "04": 380, "05": 460, "06": 600, "07": 700, "08": 850, "09": 380, "10": 460 },
-  half: { "04": 280, "05": 320, "06": 420, "07": 500, "08": 570, "09": 320, "10": 280 },
-  sunset: { "04": 260, "05": 290, "06": 370, "07": 410, "08": 470, "09": 260, "10": 290 },
-  overnight_week: { "04": 4500, "05": 5000, "06": 5500, "07": 6500, "08": 7500, "09": 4500, "10": 6000 },
+  day: { "04": 380, "05": 460, "06": 600, "07": 700, "08": 850, "09": 460, "10": 380 },
+  half: { "04": 280, "05": 320, "06": 420, "07": 500, "08": 570, "09": 280, "10": 320 },
+  sunset: { "04": 260, "05": 290, "06": 370, "07": 410, "08": 470, "09": 290, "10": 260 },
+  overnight_week: { "04": 4500, "05": 5000, "06": 5500, "07": 6500, "08": 7500, "09": 6000, "10": 4500 },
+};
+
+// Overnight multi-day pricing (2-7 days)
+const OVERNIGHT_MULTIDAY: Record<MonthKey, Record<number, number>> = {
+  "04": { 7: 4500, 6: 3900, 5: 3300, 4: 2700, 3: 2100, 2: 1500 },
+  "05": { 7: 5000, 6: 4300, 5: 3600, 4: 3000, 3: 2350, 2: 1650 },
+  "06": { 7: 5500, 6: 4800, 5: 4100, 4: 3350, 3: 2600, 2: 1800 },
+  "07": { 7: 6500, 6: 5700, 5: 4900, 4: 4000, 3: 3050, 2: 2100 },
+  "08": { 7: 7500, 6: 6900, 5: 5900, 4: 4700, 3: 3600, 2: 2400 },
+  "09": { 7: 6000, 6: 5400, 5: 4600, 4: 3700, 3: 2850, 2: 1950 },
+  "10": { 7: 4500, 6: 3900, 5: 3300, 4: 2700, 3: 2100, 2: 1500 },
 };
 
 function monthKeyFromDateISO(date: string): MonthKey | null {
@@ -825,6 +836,9 @@ export default function Page() {
   // experience
   const [experience, setExperience] = useState<ExperienceId>("half_am");
 
+  // overnight duration (2-7 days)
+  const [overnightDuration, setOvernightDuration] = useState<number>(7);
+
   // people (max 12) — stable numeric state + free-typing string for mobile input
   const [people, setPeople] = useState<number>(1);
   const [peopleInput, setPeopleInput] = useState<string>(String(people));
@@ -874,20 +888,34 @@ export default function Page() {
       return priceForExperience2026(experience, selectedDate);
     }
 
-    // Overnight: prezzo settimanale * settimane (ceil)
-    const weekPrice = priceForExperience2026("overnight", dateFrom);
-    if (!weekPrice) return 0;
+    // Overnight: use multi-day pricing table (2-7 days) from dateFrom/dateTo range
+    // Return 0 if dates are not both selected
+    if (!dateFrom || !dateTo) return 0;
+    
+    const mk = monthKeyFromDateISO(dateFrom);
+    if (!mk) return 0;
 
-    const nights = compareISO(dateTo, dateFrom) <= 0 ? 1 : daysBetweenISO(dateFrom, dateTo);
-    const weeks = Math.max(1, Math.ceil(nights / 7));
-    return weekPrice * weeks;
+    // Calculate actual days from range (not from selector)
+    const actualDays = daysBetweenISO(dateFrom, dateTo);
+    if (actualDays < 1) return 0;
+    
+    // Clamp to 2-7 days for pricing table
+    const duration = Math.max(2, Math.min(7, actualDays));
+    return OVERNIGHT_MULTIDAY[mk]?.[duration] || 0;
   }, [experience, selectedDate, dateFrom, dateTo]);
 
   // fixed items (official rules)
   const fixedItems = useMemo(() => {
+    // For overnight, calculate actual days from range
+    let overnightActualDays = 0;
+    if (experience === "overnight" && dateFrom && dateTo) {
+      const days = daysBetweenISO(dateFrom, dateTo);
+      overnightActualDays = Math.max(2, Math.min(7, days));
+    }
+
     const skipper =
       experience === "overnight"
-        ? FIXED_RULES.skipper_per_day * overnightDays
+        ? FIXED_RULES.skipper_per_day * overnightActualDays
         : FIXED_RULES.skipper_per_day;
 
     const fuel =
@@ -905,7 +933,7 @@ export default function Page() {
       },
       { id: "cleaning", label: t.fixed_cleaning, price: cleaning },
     ].filter((x) => !(x as any).hidden);
-  }, [experience, overnightDays, t.fixed_skipper, t.fixed_fuel, t.fixed_cleaning]);
+  }, [experience, dateFrom, dateTo, t.fixed_skipper, t.fixed_fuel, t.fixed_cleaning]);
 
   const fixedTotal = useMemo(
     () => fixedItems.reduce((sum, x) => sum + (x.price || 0), 0),
@@ -1553,7 +1581,7 @@ export default function Page() {
                   </>
                 )}
 
-                <label className="block">
+                <label className={experience === "overnight" ? "block sm:col-span-2" : "block"}>
                   <div className="text-xs font-extrabold text-slate-600 mb-1">
                     {t.people} (max {MAX_PEOPLE})
                   </div>
@@ -1605,10 +1633,24 @@ export default function Page() {
             <Card title={t.experiences}>
               <div className="grid gap-4 sm:grid-cols-2">
                 {expDefs.map((exp) => {
-                  const price =
-                    exp.id === "overnight"
-                      ? priceForExperience2026("overnight", dateFrom || selectedDate)
-                      : priceForExperience2026(exp.id, selectedDate);
+                  // Calculate dynamic price for overnight based on actual date range
+                  let price = 0;
+                  let overnightDaysDisplay = 0;
+                  
+                  if (exp.id === "overnight") {
+                    if (dateFrom && dateTo) {
+                      const mk = monthKeyFromDateISO(dateFrom);
+                      if (mk) {
+                        const actualDays = daysBetweenISO(dateFrom, dateTo);
+                        const duration = Math.max(2, Math.min(7, actualDays));
+                        price = OVERNIGHT_MULTIDAY[mk]?.[duration] || 0;
+                        overnightDaysDisplay = duration;
+                      }
+                    }
+                    // else price = 0 (no dates selected)
+                  } else {
+                    price = priceForExperience2026(exp.id, selectedDate);
+                  }
 
                   const isSelected = experience === exp.id;
                   const disabled = exp.blocked;
@@ -1650,7 +1692,9 @@ export default function Page() {
                           {exp.id === "overnight" ? (
                             <div className="text-right">
                               <div className="text-lg font-black leading-tight break-words">{euro(price)}</div>
-                              <div className="text-xs font-extrabold">{t.per_week}</div>
+                              <div className="text-xs font-extrabold">
+                                {overnightDaysDisplay > 0 ? `${overnightDaysDisplay} ${t.days}` : t.per_week}
+                              </div>
                             </div>
                           ) : (
                             <div className="text-xl font-black">{euro(price)}</div>
@@ -1672,6 +1716,28 @@ export default function Page() {
                   </ul>
                 </div>
               </div>
+
+              {experience === "overnight" && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <label className="block">
+                    <div className="text-xs font-extrabold text-slate-600 mb-2">
+                      {t.days} (2–7)
+                    </div>
+                    <select
+                      value={overnightDuration}
+                      onChange={(e) => setOvernightDuration(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-extrabold text-slate-900 outline-none"
+                    >
+                      <option value={2}>2 {t.days}</option>
+                      <option value={3}>3 {t.days}</option>
+                      <option value={4}>4 {t.days}</option>
+                      <option value={5}>5 {t.days}</option>
+                      <option value={6}>6 {t.days}</option>
+                      <option value={7}>7 {t.days}</option>
+                    </select>
+                  </label>
+                </div>
+              )}
 
               <div className="mt-4 rounded-xl border border-slate-200 bg-sky-50 px-4 py-3">
                 <div className="text-xs font-extrabold text-slate-600">{t.summary}</div>
